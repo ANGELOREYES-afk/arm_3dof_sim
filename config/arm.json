@@ -1,0 +1,43 @@
+{
+  "_about": "Shared by the browser sim and the motor bridge. Angles in degrees, lengths in mm. Restart the bridge after editing.",
+
+  "geometry": {
+    "_note": "The upper arm and forearm are not in the CAD yet; these are assumed placeholder links. Shoulder height and lateral offsets come from web/meshes/manifest.json (tools/split_assembly.py).",
+    "upper_arm_mm": 150,
+    "forearm_mm": 150,
+    "link_width_mm": 44,
+    "floor_clearance_mm": 8,
+    "mass_kg": {
+      "_note": "elbow_motor is the published IM6014 mass. Links and payload are guesses; set them from your parts before enabling gravity_ff.",
+      "upper_arm": 0.10,
+      "elbow_motor": 0.535,
+      "forearm": 0.08,
+      "payload": 0.0
+    }
+  },
+
+  "joints": [
+    { "name": "J1 yaw",      "id": 0, "direction": 1, "min_deg": -170, "max_deg": 170, "kp": 3, "kd": 1, "max_speed_dps": 60 },
+    { "name": "J2 shoulder", "id": 1, "direction": 1, "min_deg": -100, "max_deg": 100, "kp": 3, "kd": 1, "max_speed_dps": 45 },
+    { "name": "J3 elbow",    "id": 2, "direction": 1, "min_deg": -150, "max_deg": 150, "kp": 3, "kd": 1, "max_speed_dps": 60 }
+  ],
+
+  "calibration_pose_deg": [0, 0, 0],
+  "ready_pose_deg": [0, 25, 65],
+
+  "bus": {
+    "_note": "All three IDs on one RS-485 channel by default. A joint may set its own \"port\" to use another FT4232H channel.",
+    "port": "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTC2RQ7H-if03-port0",
+    "baud": 6000000
+  },
+
+  "safety": {
+    "heartbeat_timeout_s": 0.5,
+    "target_timeout_s": 0.2,
+    "feedback_timeout_s": 0.1,
+    "limit_margin_deg": 5,
+    "max_tracking_error_deg": 30,
+    "gravity_ff": false,
+    "torque_ff_limit_nm": 2.0
+  }
+}

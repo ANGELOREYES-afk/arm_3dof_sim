@@ -1,0 +1,389 @@
+{
+  "source": {
+    "file": "mainAssem.stl",
+    "triangles": 298940,
+    "sha256": "d47b548ce6428153a4719177aeac6fdee7cf3a9c580e072dbf90e6fc8d174cc3"
+  },
+  "units": "mm",
+  "up": "+z",
+  "frames": {
+    "base": "world",
+    "turret": "J1 (world at q1=0)",
+    "shoulder_flange": "J2, origin on the shoulder axis",
+    "elbow_motor": "J2, origin on the elbow axis"
+  },
+  "parts": {
+    "base": {
+      "motor": {
+        "file": "base.motor.bin",
+        "vertices": 37542,
+        "triangles": 75898,
+        "bbox_min": [
+          -32.5,
+          -32.5,
+          5.0
+        ],
+        "bbox_max": [
+          32.5,
+          32.5,
+          67.3
+        ],
+        "components": 16
+      },
+      "frame": {
+        "file": "base.frame.bin",
+        "vertices": 5568,
+        "triangles": 11644,
+        "bbox_min": [
+          -42.5,
+          -46.91,
+          5.2
+        ],
+        "bbox_max": [
+          42.53,
+          46.85,
+          63.5
+        ],
+        "components": 2
+      },
+      "hardware": {
+        "file": "base.hardware.bin",
+        "vertices": 7130,
+        "triangles": 14236,
+        "bbox_min": [
+          -29.33,
+          -44.42,
+          0.0
+        ],
+        "bbox_max": [
+          31.76,
+          44.42,
+          65.71
+        ],
+        "components": 8
+      }
+    },
+    "turret": {
+      "motor": {
+        "file": "turret.motor.bin",
+        "vertices": 37533,
+        "triangles": 75898,
+        "bbox_min": [
+          -32.5,
+          23.9,
+          104.65
+        ],
+        "bbox_max": [
+          32.5,
+          86.2,
+          169.65
+        ],
+        "components": 16
+      },
+      "frame": {
+        "file": "turret.frame.bin",
+        "vertices": 9031,
+        "triangles": 19002,
+        "bbox_min": [
+          -45.0,
+          -40.0,
+          64.3
+        ],
+        "bbox_max": [
+          45.0,
+          98.0,
+          184.0
+        ],
+        "components": 3
+      },
+      "hardware": {
+        "file": "turret.hardware.bin",
+        "vertices": 9662,
+        "triangles": 19300,
+        "bbox_min": [
+          -29.33,
+          -21.06,
+          90.3
+        ],
+        "bbox_max": [
+          31.76,
+          91.2,
+          181.57
+        ],
+        "components": 11
+      }
+    },
+    "shoulder_flange": {
+      "frame": {
+        "file": "shoulder_flange.frame.bin",
+        "vertices": 2002,
+        "triangles": 4036,
+        "bbox_min": [
+          -27.3,
+          16.9,
+          -27.3
+        ],
+        "bbox_max": [
+          27.3,
+          26.9,
+          27.26
+        ],
+        "components": 1
+      }
+    },
+    "elbow_motor": {
+      "motor": {
+        "file": "elbow_motor.motor.bin",
+        "vertices": 38589,
+        "triangles": 78006,
+        "bbox_min": [
+          -32.5,
+          -51.4,
+          -32.5
+        ],
+        "bbox_max": [
+          32.5,
+          10.9,
+          32.5
+        ],
+        "components": 17
+      }
+    }
+  },
+  "dropped": [
+    {
+      "triangles": 920,
+      "cad_center": [
+        -119.7,
+        23.7,
+        -204.2
+      ]
+    }
+  ],
+  "geometry": {
+    "shoulder_height_mm": 137.15,
+    "shoulder_face_y_mm": 16.9,
+    "plate_mm": 6.0,
+    "upper_arm_y_mm": [
+      10.9,
+      16.9
+    ],
+    "elbow_motor_back_y_mm": 10.9,
+    "elbow_output_y_mm": -51.4,
+    "forearm_y_mm": [
+      -57.4,
+      -51.4
+    ],
+    "tool_offset_y_mm": -54.4,
+    "motor_length_mm": 62.3,
+    "motor_diameter_mm": 65.0,
+    "keepout_upper_arm_mm": [
+      [
+        -52.7,
+        52.7,
+        0.0,
+        67.3
+      ],
+      [
+        -45.0,
+        -39.4,
+        0.0,
+        97.5
+      ],
+      [
+        -39.4,
+        -33.8,
+        0.0,
+        107.6
+      ],
+      [
+        -33.8,
+        -28.1,
+        0.0,
+        108.3
+      ],
+      [
+        -28.1,
+        -22.5,
+        0.0,
+        102.2
+      ],
+      [
+        -22.5,
+        -16.9,
+        0.0,
+        94.6
+      ],
+      [
+        -16.9,
+        -11.2,
+        0.0,
+        94.6
+      ],
+      [
+        -11.2,
+        -5.6,
+        0.0,
+        94.6
+      ],
+      [
+        -5.6,
+        0.0,
+        0.0,
+        102.2
+      ],
+      [
+        0.0,
+        5.6,
+        0.0,
+        102.2
+      ],
+      [
+        5.6,
+        11.3,
+        0.0,
+        94.6
+      ],
+      [
+        11.3,
+        16.9,
+        0.0,
+        94.6
+      ],
+      [
+        16.9,
+        22.5,
+        0.0,
+        94.6
+      ],
+      [
+        22.5,
+        28.1,
+        0.0,
+        102.2
+      ],
+      [
+        28.1,
+        33.8,
+        0.0,
+        108.3
+      ],
+      [
+        33.8,
+        39.4,
+        0.0,
+        107.6
+      ],
+      [
+        39.4,
+        45.0,
+        0.0,
+        97.5
+      ]
+    ],
+    "keepout_elbow_motor_mm": [
+      [
+        -52.7,
+        52.7,
+        0.0,
+        67.3
+      ],
+      [
+        -45.0,
+        -39.4,
+        0.0,
+        90.3
+      ],
+      [
+        -39.4,
+        -33.8,
+        0.0,
+        90.3
+      ],
+      [
+        -33.8,
+        -28.1,
+        0.0,
+        90.3
+      ],
+      [
+        -28.1,
+        -22.5,
+        0.0,
+        74.3
+      ],
+      [
+        -22.5,
+        -16.9,
+        0.0,
+        94.6
+      ],
+      [
+        -16.9,
+        -11.2,
+        0.0,
+        94.6
+      ],
+      [
+        -11.2,
+        -5.6,
+        0.0,
+        94.6
+      ],
+      [
+        -5.6,
+        0.0,
+        0.0,
+        94.6
+      ],
+      [
+        0.0,
+        5.6,
+        0.0,
+        94.6
+      ],
+      [
+        5.6,
+        11.3,
+        0.0,
+        94.6
+      ],
+      [
+        11.3,
+        16.9,
+        0.0,
+        94.6
+      ],
+      [
+        16.9,
+        22.5,
+        0.0,
+        94.6
+      ],
+      [
+        22.5,
+        28.1,
+        0.0,
+        74.3
+      ],
+      [
+        28.1,
+        33.8,
+        0.0,
+        90.3
+      ],
+      [
+        33.8,
+        39.4,
+        0.0,
+        90.3
+      ],
+      [
+        39.4,
+        45.0,
+        0.0,
+        90.3
+      ]
+    ]
+  }
+}

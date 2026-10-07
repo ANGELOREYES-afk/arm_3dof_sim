@@ -1,0 +1,5 @@
+im6014Development/
+.venv/
+__pycache__/
+*.py[cod]
+tests/out/

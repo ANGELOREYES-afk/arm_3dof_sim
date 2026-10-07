@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3-DOF Arm Sim</title>
+<style>
+  :root {
+    --bg: #12151a; --panel: #181c22; --raised: #1f242c; --line: #2c333d; --ink: #e6e9ee; --ink-mid: #a8b0bc; --ink-dim: #6f7886;
+    --accent: #e27d3c; --cyan: #3cc3dc; --green: #46d39a; --amber: #f2c14e; --red: #ef5350;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--sans); }
+  body { display: grid; grid-template-columns: minmax(0, 1fr) 372px; height: 100vh; overflow: hidden; }
+  #viewport { position: relative; min-width: 0; min-height: 0; }
+  #viewport canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
+  #loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-mid); font-family: var(--mono); }
+
+  .hud { position: absolute; pointer-events: none; }
+  #hud-top { top: 14px; left: 16px; right: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #hud-bottom { left: 16px; bottom: 14px; right: 16px; font-family: var(--mono); font-size: 11px; color: var(--ink-mid); line-height: 1.7; }
+  #hud-bottom kbd { color: var(--ink); background: rgba(255,255,255,.07); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font: inherit; }
+  .pill { font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: rgba(18,21,26,.82); color: var(--ink-mid); }
+  .pill.warn { color: var(--amber); border-color: rgba(242,193,78,.45); }
+  .pill.live { color: var(--green); border-color: rgba(70,211,154,.5); }
+  .pill.danger { color: #fff; background: rgba(239,83,80,.9); border-color: var(--red); }
+  .pill[hidden] { display: none; }
+
+  aside { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; }
+  aside header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .01em; }
+  h1 small { display: block; font: 11px var(--mono); color: var(--ink-dim); font-weight: 400; margin-top: 2px; }
+  .badge { font: 600 10.5px var(--mono); letter-spacing: .08em; padding: 3px 8px; border-radius: 4px; background: var(--raised); color: var(--ink-mid); border: 1px solid var(--line); white-space: nowrap; }
+  .badge.demo { color: var(--cyan); border-color: rgba(60,195,220,.45); }
+  .badge.real { color: #12151a; background: var(--amber); border-color: var(--amber); }
+  section { padding: 14px 16px 16px; border-bottom: 1px solid var(--line); }
+  h2 { margin: 0 0 10px; font: 600 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-dim); display: flex; justify-content: space-between; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-dim); flex: none; }
+  .dot.on { background: var(--green); box-shadow: 0 0 0 3px rgba(70,211,154,.18); }
+  button, select { font: inherit; color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: #3d4653; background: #252b34; }
+  button:disabled { opacity: .38; cursor: not-allowed; }
+  select { cursor: pointer; min-width: 0; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; margin: 8px 0; }
+  .seg button { border: 0; border-radius: 0; background: transparent; color: var(--ink-mid); }
+  .seg button.on { background: var(--raised); color: var(--ink); box-shadow: inset 0 -2px var(--accent); }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  output, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .grid-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+  .grid-btns button.on { border-color: var(--accent); color: var(--accent); }
+
+  .xyz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+  .xyz div { background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  .xyz span { font: 10px var(--mono); color: var(--ink-dim); margin-right: 6px; }
+  .xyz b { font: 500 13px var(--mono); font-variant-numeric: tabular-nums; }
+  .joint { display: grid; grid-template-columns: 74px 1fr 52px; gap: 4px 8px; align-items: center; margin: 9px 0; }
+  .joint .name { font-size: 12px; color: var(--ink-mid); }
+  .joint .val { text-align: right; font: 500 12.5px var(--mono); font-variant-numeric: tabular-nums; }
+  .joint .sub { grid-column: 2 / 4; font: 10.5px var(--mono); color: var(--ink-dim); display: flex; justify-content: space-between; }
+  .track { position: relative; height: 6px; border-radius: 3px; background: var(--raised); border: 1px solid var(--line); }
+  .track i { position: absolute; top: -4px; width: 2px; height: 12px; border-radius: 1px; transform: translateX(-1px); }
+  .track i.zero { background: var(--line); }
+  .track i.tgt { background: var(--accent); width: 3px; }
+  .track i.meas { background: var(--green); }
+  .track i.meas[hidden] { display: none; }
+  .legend { font: 10.5px var(--mono); color: var(--ink-dim); display: flex; gap: 12px; margin-top: 4px; }
+  .legend b { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+  .state { background: var(--raised); border: 1px solid var(--line); border-left: 3px solid var(--ink-dim); border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; }
+  .state b { font: 600 12.5px var(--mono); }
+  .state p { margin: 3px 0 0; color: var(--ink-mid); font-size: 12px; }
+  .state.ready { border-left-color: var(--cyan); }
+  .state.armed { border-left-color: var(--green); }
+  .state.fault { border-left-color: var(--red); }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .btns button { flex: 1 1 auto; }
+  button.primary { border-color: rgba(70,211,154,.55); color: var(--green); }
+  button.stop { width: 100%; margin: 6px 0 4px; padding: 11px; font: 700 13px var(--mono); letter-spacing: .08em; color: #fff; background: #b3302d; border-color: #d4413d; }
+  button.stop:hover { background: #c93a36 !important; }
+  label.check { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--ink-mid); margin: 10px 0 4px; cursor: pointer; }
+  label.check input { margin-top: 2px; accent-color: var(--amber); }
+  .note { font-size: 12px; color: var(--ink-mid); margin: 0; }
+  code { font: 11.5px var(--mono); color: var(--ink); background: var(--raised); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
+  table { width: 100%; border-collapse: collapse; font: 11px var(--mono); font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 3px 4px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--ink-dim); font-weight: 500; }
+  .kv { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 8px 0; font: 10.5px var(--mono); color: var(--ink-dim); }
+  .kv b { display: block; color: var(--ink); font-weight: 500; font-size: 12px; }
+  ol.log { list-style: none; margin: 8px 0 0; padding: 8px; max-height: 150px; overflow-y: auto; background: #0f1216; border: 1px solid var(--line); border-radius: 6px; font: 10.5px/1.5 var(--mono); color: var(--ink-mid); }
+  ol.log li { white-space: pre-wrap; word-break: break-word; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: var(--ink-mid); font-size: 12px; }
+  .map { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin-top: 8px; font-size: 12px; }
+  .map dt { font: 11px var(--mono); color: var(--ink); white-space: nowrap; }
+  .map dd { margin: 0; color: var(--ink-mid); }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 900px) {
+    body { grid-template-columns: 1fr; grid-template-rows: 58vh auto; height: auto; overflow: auto; }
+    #viewport { height: 58vh; }
+    aside { border-left: 0; border-top: 1px solid var(--line); }
+    #hud-bottom { display: none; }
+  }
+</style>
+</head>
+<body>
+<main id="viewport">
+  <div id="loading">Loading CAD meshes…</div>
+  <div id="hud-top" class="hud">
+    <span class="pill" id="hud-mode">IK · Cartesian</span>
+    <span class="pill live" id="hud-arm" hidden></span>
+    <span class="pill warn" id="hud-blocked" hidden></span>
+    <span class="pill warn" id="hud-msg" hidden></span>
+  </div>
+  <div id="hud-bottom" class="hud">
+    <div><kbd>LS</kbd> move target · <kbd>RS ↕</kbd> up/down · <kbd>RS ↔</kbd> orbit · <kbd>LT</kbd> precise · <kbd>RT</kbd> full speed</div>
+    <div><kbd>A</kbd> IK/joint · <kbd>X</kbd> ready · <kbd>Y</kbd> flip elbow · <kbd>LB</kbd> figure-8 · <kbd>RB</kbd> hold to drive motors · <kbd>B</kbd> STOP</div>
+    <div>Keys: <kbd>WASD</kbd> <kbd>R/F</kbd> <kbd>Q/E</kbd> <kbd>Shift</kbd> <kbd>Space</kbd> deadman · <kbd>Esc</kbd> STOP</div>
+  </div>
+</main>
+
+<aside>
+  <header>
+    <h1>3-DOF arm<small>yaw · shoulder · elbow — IM6014 ×3</small></h1>
+    <span class="badge" id="source-badge">SIM ONLY</span>
+  </header>
+
+  <section>
+    <h2>Controller</h2>
+    <div class="row"><span class="dot" id="pad-dot"></span><span id="pad-name">No controller seen — press any button on it</span></div>
+    <div class="seg" id="mode-seg">
+      <button data-mode="ik" class="on">IK · Cartesian</button>
+      <button data-mode="joint">Joint</button>
+    </div>
+    <div class="row">Speed <input type="range" id="speed" min="0.1" max="1" step="0.05" value="0.6"><output id="speed-out" class="num">60%</output></div>
+    <details>
+      <summary>Xbox button map</summary>
+      <dl class="map">
+        <dt>Left stick</dt><dd>IK: move the target across the floor, relative to the camera. Joint: J1 ↔, J2 ↕</dd>
+        <dt>Right stick</dt><dd>IK: ↕ raises/lowers the target, ↔ orbits the camera. Joint: J3 ↕</dd>
+        <dt>LT / RT</dt><dd>Precision (¼ speed) / full speed</dd>
+        <dt>A</dt><dd>Toggle IK ↔ joint mode</dd>
+        <dt>X / Y</dt><dd>Go to the ready pose / flip the elbow</dd>
+        <dt>LB</dt><dd>Start or stop the figure-8 demo path</dd>
+        <dt>RB (hold)</dt><dd>Deadman: armed motors follow the sim only while held</dd>
+        <dt>B</dt><dd>STOP — motors stop and disarm (torque off)</dd>
+        <dt>Menu ☰</dt><dd>Check, then arm (needs the “supported” box ticked)</dd>
+        <dt>View ⧉</dt><dd>Reset the camera</dd>
+        <dt>D-pad ↑↓</dt><dd>Speed ±</dd>
+      </dl>
+    </details>
+  </section>
+
+  <section>
+    <h2>Pose <span id="ik-state"></span></h2>
+    <div class="xyz">
+      <div><span>X</span><b id="tx">—</b></div>
+      <div><span>Y</span><b id="ty">—</b></div>
+      <div><span>Z</span><b id="tz">—</b></div>
+    </div>
+    <div id="joints"></div>
+    <div class="legend"><span><b style="background:var(--accent)"></b>sim target</span><span><b style="background:var(--green)"></b>motor feedback</span><span>τg = gravity hold torque</span></div>
+    <div class="grid-btns">
+      <button id="btn-ready">Ready pose</button>
+      <button id="btn-flip">Flip elbow</button>
+      <button id="btn-demo">Figure-8 demo</button>
+      <button id="btn-cal">Calibration pose</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Motors <span id="bridge-link">offline</span></h2>
+    <div id="bridge-offline">
+      <p class="note">No bridge — this page is running the simulation only. To drive IM6014 motors (or the repo's packet simulator), run</p>
+      <p class="note" style="margin-top:6px"><code>python3 bridge/arm_bridge.py</code></p>
+      <p class="note" style="margin-top:6px">and open <code>http://127.0.0.1:8765</code>.</p>
+    </div>
+    <div id="bridge-online" hidden>
+      <p class="note" id="observer-note" hidden>Another tab controls these motors. This one is view-only, but its STOP works.</p>
+      <div class="state" id="m-state-box"><b id="m-state">—</b><p id="m-reason"></p></div>
+      <div class="row">
+        <select id="m-source" style="flex:1">
+          <option value="demo">Demo motors (repo's packet simulator)</option>
+          <option value="real">Real IM6014 motors</option>
+        </select>
+      </div>
+      <div class="row" id="real-opts" hidden>
+        <select id="m-port" style="flex:1"></select>
+        <select id="m-baud"><option value="6000000">6 Mbps</option><option value="4000000">4 Mbps</option></select>
+      </div>
+      <div class="btns">
+        <button id="m-connect">Connect</button>
+        <button id="m-disconnect">Disconnect</button>
+        <button id="m-check">Check</button>
+        <button id="m-ack">Ack timeout</button>
+      </div>
+      <label class="check"><input type="checkbox" id="m-supported"> The arm is supported and clear of people. Stop releases torque, so a loaded joint will drop.</label>
+      <div class="btns">
+        <button id="m-home" title="Place the arm physically at the calibration pose first">Set home here</button>
+        <button id="m-arm" class="primary">Arm</button>
+      </div>
+      <button class="stop" id="m-stop">STOP · B / Esc</button>
+      <div class="kv">
+        <div>loop<b id="k-hz">—</b></div><div>tx / rx<b id="k-pk">—</b></div><div>CRC<b id="k-crc">—</b></div><div>timeouts<b id="k-to">—</b></div>
+      </div>
+      <table>
+        <thead><tr><th>Joint</th><th>ID</th><th>meas °</th><th>Nm</th><th>V</th><th>°C</th><th>age</th></tr></thead>
+        <tbody id="m-table"></tbody>
+      </table>
+      <ol class="log" id="m-events"></ol>
+    </div>
+  </section>
+</aside>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
