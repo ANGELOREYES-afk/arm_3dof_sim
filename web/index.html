@@ -98,6 +98,21 @@
   .map { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin-top: 8px; font-size: 12px; }
   .map dt { font: 11px var(--mono); color: var(--ink); white-space: nowrap; }
   .map dd { margin: 0; color: var(--ink-mid); }
+  .cal { margin: 12px 0 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #151a20; }
+  .cal h3 { margin: 0 0 6px; font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-mid); }
+  .cal h3 span { display: block; margin-top: 2px; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--ink-dim); }
+  #cal-steps { list-style: none; margin: 0; padding: 0; font-size: 12px; color: var(--ink-mid); }
+  #cal-steps li { padding: 6px 0 6px 10px; border-left: 2px solid var(--line); margin: 4px 0; }
+  #cal-steps li b { color: var(--ink); font-weight: 600; }
+  #cal-steps li .st { float: right; font: 10.5px var(--mono); color: var(--ink-dim); text-transform: uppercase; }
+  #cal-steps li.running { border-left-color: var(--amber); }
+  #cal-steps li.running .st { color: var(--amber); }
+  #cal-steps li.done { border-left-color: var(--green); }
+  #cal-steps li.done .st { color: var(--green); }
+  #cal-steps li.failed { border-left-color: var(--red); }
+  #cal-steps li.failed .st, .res.err { color: var(--red); }
+  .res { margin-top: 3px; font: 11px var(--mono); color: var(--ink); }
+  .cal-msg { margin-top: 8px; color: var(--amber); }
   [hidden] { display: none !important; }
 
   @media (max-width: 900px) {
@@ -126,7 +141,7 @@
 
 <aside>
   <header>
-    <h1>3-DOF arm<small>yaw · shoulder · elbow — IM6014 ×3</small></h1>
+    <h1>3-DOF arm<small>URDF · yaw · shoulder · elbow — IM6014 ×3</small></h1>
     <span class="badge" id="source-badge">SIM ONLY</span>
   </header>
 
@@ -149,7 +164,7 @@
         <dt>LB</dt><dd>Start or stop the figure-8 demo path</dd>
         <dt>RB (hold)</dt><dd>Deadman: armed motors follow the sim only while held</dd>
         <dt>B</dt><dd>STOP — motors stop and disarm (torque off)</dd>
-        <dt>Menu ☰</dt><dd>Check, then arm (needs the “supported” box ticked)</dd>
+        <dt>Menu ☰</dt><dd>Check, then arm (needs the “supported” box ticked); confirms a manual calibration step</dd>
         <dt>View ⧉</dt><dd>Reset the camera</dd>
         <dt>D-pad ↑↓</dt><dd>Speed ±</dd>
       </dl>
@@ -169,7 +184,7 @@
       <button id="btn-ready">Ready pose</button>
       <button id="btn-flip">Flip elbow</button>
       <button id="btn-demo">Figure-8 demo</button>
-      <button id="btn-cal">Calibration pose</button>
+      <button id="btn-cal">Calibration start pose</button>
     </div>
   </section>
 
@@ -200,8 +215,18 @@
         <button id="m-ack">Ack timeout</button>
       </div>
       <label class="check"><input type="checkbox" id="m-supported"> The arm is supported and clear of people. Stop releases torque, so a loaded joint will drop.</label>
+      <div class="cal">
+        <h3>Calibration <span id="cal-saved"></span></h3>
+        <ol id="cal-steps"></ol>
+        <p class="note cal-msg" id="cal-msg" hidden></p>
+        <div class="btns">
+          <button id="cal-preview" title="Animate the plan in the sim on the CAD-predicted contacts">Preview in sim</button>
+          <button id="cal-start" class="primary" title="Pose the arm like “Calibration start pose” first">Calibrate</button>
+          <button id="cal-confirm" class="primary" hidden>Confirm aligned (☰)</button>
+        </div>
+      </div>
       <div class="btns">
-        <button id="m-home" title="Place the arm physically at the calibration pose first">Set home here</button>
+        <button id="m-home" title="Manual fallback: the arm is physically at the URDF zero pose">Set reference = URDF zero</button>
         <button id="m-arm" class="primary">Arm</button>
       </div>
       <button class="stop" id="m-stop">STOP · B / Esc</button>
@@ -209,7 +234,7 @@
         <div>loop<b id="k-hz">—</b></div><div>tx / rx<b id="k-pk">—</b></div><div>CRC<b id="k-crc">—</b></div><div>timeouts<b id="k-to">—</b></div>
       </div>
       <table>
-        <thead><tr><th>Joint</th><th>ID</th><th>meas °</th><th>Nm</th><th>V</th><th>°C</th><th>age</th></tr></thead>
+        <thead><tr><th>Joint</th><th>ID</th><th>q °</th><th>enc °</th><th>Nm</th><th>V</th><th>°C</th><th>age</th></tr></thead>
         <tbody id="m-table"></tbody>
       </table>
       <ol class="log" id="m-events"></ol>

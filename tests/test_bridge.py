@@ -10,6 +10,7 @@ from pathlib import Path
 import socket
 import struct
 import sys
+import tempfile
 import threading
 import time
 
@@ -20,6 +21,15 @@ from arm_session import ArmSession  # noqa: E402
 
 codec, sim = im6014.load()
 CFG = json.loads((ROOT / 'config' / 'arm.json').read_text())
+MANIFEST = json.loads((ROOT / 'web' / 'meshes' / 'manifest.json').read_text())
+TMP = tempfile.TemporaryDirectory()
+
+
+def session(cfg=CFG):
+    d = Path(TMP.name)
+    for f in d.glob('*.json'):
+        f.unlink()
+    return ArmSession(cfg, codec, sim, MANIFEST, dict(real=d / 'real.json', demo=d / 'demo.json'))
 
 
 def wait(session, pred, timeout=3.):
@@ -39,7 +49,7 @@ def heartbeat(session, stop):
 
 
 def test_lifecycle():
-    s = ArmSession(CFG, codec, sim)
+    s = session()
     hb = threading.Event()
     threading.Thread(target=heartbeat, args=(s, hb), daemon=True).start()
     try:
@@ -47,14 +57,19 @@ def test_lifecycle():
         wait(s, lambda d: 'Rejected' in ''.join(e[1] for e in d['events']))
         s.request('connect', demo=True)
         d = wait(s, lambda d: d['state'] == 'Timeout — disarmed')
-        assert d['zeroed'] and d['connected'], d
+        assert d['connected'] and not d['zeroed'], d
         s.request('ack')
         wait(s, lambda d: d['state'] == 'Ready · Stop')
+        s.request('arm', supported=True)
+        wait(s, lambda d: 'Calibrate before arming' in d['reason'])
+        # Manual reference: the arm is declared to be at the calibration pose [0, 0, 0].
+        s.request('home', supported=True)
+        wait(s, lambda d: d['zeroed'] and d['state'] == 'Ready · Stop')
         s.request('arm', supported=False)
         wait(s, lambda d: 'acknowledgment' in d['reason'])
         s.request('arm', supported=True)
         d = wait(s, lambda d: d['armed'])
-        assert d['q_cmd'] == [0., 0., 0.], d['q_cmd']
+        assert max(map(abs, d['q_cmd'])) < 1e-6, d['q_cmd']
 
         # Without the deadman, targets are ignored: the arm holds.
         for _ in range(20):
@@ -64,19 +79,20 @@ def test_lifecycle():
         assert d['state'] == 'Armed · holding' and max(map(abs, d['q_cmd'])) < 1e-6, d['q_cmd']
 
         # With the deadman, q_cmd ramps at max_speed and the simulated motors follow.
-        goal = [30., -40., 300.]  # J3 past its 150 deg limit -> clamped
+        # (The demo joints have physical stops; these targets stay clear of them.)
+        goal = [30., 20., 300.]  # J3 past its 10 deg limit -> clamped
         t0 = time.monotonic()
         while time.monotonic() - t0 < 4.:
             s.set_target([math.radians(a) for a in goal], deadman=True)
             d = s.snapshot()
             if time.monotonic() - t0 < .5:
-                # J2 max 45 deg/s: after <0.5 s it cannot be past ~23 deg
-                assert abs(d['q_cmd'][1]) <= 45 * (time.monotonic() - t0) + 2, d['q_cmd']
+                # J2 max 30 deg/s: after <0.5 s it cannot be past ~15 deg
+                assert abs(d['q_cmd'][1]) <= 30 * (time.monotonic() - t0) + 2, d['q_cmd']
             time.sleep(.01)
         d = s.snapshot()
         assert d['state'] == 'Armed · moving', d['state']
-        assert abs(d['q_cmd'][0] - 30) < .5 and abs(d['q_cmd'][1] + 40) < .5, d['q_cmd']
-        assert abs(d['q_cmd'][2] - 150) < .5, d['q_cmd']  # clamped to the limit
+        assert abs(d['q_cmd'][0] - 30) < .5 and abs(d['q_cmd'][1] - 20) < .5, d['q_cmd']
+        assert abs(d['q_cmd'][2] - 10) < .5, d['q_cmd']  # clamped to the limit
         meas = [f['q_deg'] for f in d['feedback']]
         assert all(abs(m - c) < 5 for m, c in zip(meas, d['q_cmd'])), (meas, d['q_cmd'])
         assert d['tx'] == d['rx'] and d['crc_errors'] == 0 and d['reply_timeouts'] == 0, d
@@ -117,7 +133,7 @@ def test_tracking_trip():
     cfg = json.loads(json.dumps(CFG))
     cfg['safety']['max_tracking_error_deg'] = 1
     cfg['joints'][1]['max_speed_dps'] = 400
-    s = ArmSession(cfg, codec, sim)
+    s = session(cfg)
     hb = threading.Event()
     threading.Thread(target=heartbeat, args=(s, hb), daemon=True).start()
     try:
@@ -125,8 +141,13 @@ def test_tracking_trip():
         wait(s, lambda d: d['state'] == 'Timeout — disarmed')
         s.request('ack')
         wait(s, lambda d: d['state'] == 'Ready · Stop')
+        s.request('home', supported=True)
+        wait(s, lambda d: d['zeroed'])
         s.request('arm', supported=True)
         wait(s, lambda d: d['armed'])
+        for _ in range(5):  # release the deadman once after arming
+            s.set_target([0, 0, 0], deadman=False)
+            time.sleep(.02)
         t0 = time.monotonic()
         while time.monotonic() - t0 < 1 and s.snapshot()['armed']:
             s.set_target([0, 1.5, 0], deadman=True)
@@ -140,14 +161,18 @@ def test_tracking_trip():
 
 
 def test_gravity_sign():
-    s = ArmSession(CFG, codec, sim)
+    s = session()
     try:
-        g = s._gravity([0, math.radians(90), 0])  # arm horizontal, reaching +x
-        assert g[0] == 0 and g[1] < 0 and g[2] < 0, g  # must push back toward vertical
-        assert abs(s._gravity([0, 0, 0])[1]) < 1e-9
+        a = MANIFEST['analytic']
+        # Upper arm and forearm horizontal, reaching forward (closed-form angles 90 and 0).
+        q = [0., (math.pi / 2 - a['offset'][1]) * a['sign'][1], (0 - a['offset'][2]) * a['sign'][2]]
+        g = s._gravity(q)
+        assert g[0] == 0 and g[1] * a['sign'][1] < 0 and g[2] * a['sign'][2] < 0, g  # pushes back up
+        up = [0., -a['offset'][1] * a['sign'][1], -a['offset'][2] * a['sign'][2]]
+        assert max(abs(x) for x in s._gravity(up)) < 1e-9  # straight up: nothing to hold
     finally:
         s.close()
-    print(f'gravity model: ok (horizontal arm needs {g[1]:.2f} / {g[2]:.2f} Nm at J2/J3)')
+    print(f'gravity model: ok (arm straight out needs {abs(g[1]):.2f} / {abs(g[2]):.2f} Nm at J2/J3)')
 
 
 def ws_client(port, origin=None):
@@ -208,7 +233,7 @@ def test_websocket():
                 break
         else:
             raise AssertionError('no demo connect over WebSocket')
-        assert msg['controller'] and msg['zeroed']
+        assert msg['controller'] and not msg['armed']
         # A second page is an observer and cannot command, but may stop.
         sock2, f2, _ = ws_client(port)
         ws_recv(f2)

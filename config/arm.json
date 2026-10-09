@@ -1,29 +1,40 @@
 {
-  "_about": "Shared by the browser sim and the motor bridge. Angles in degrees, lengths in mm. Restart the bridge after editing.",
+  "_about": "Shared by the browser sim and the motor bridge. Joint angles are the URDF's (degrees); lengths in mm. Geometry comes from web/meshes/manifest.json (tools/import_urdf.py). Restart the bridge after editing.",
 
   "geometry": {
-    "_note": "The upper arm and forearm are not in the CAD yet; these are assumed placeholder links. Shoulder height and lateral offsets come from web/meshes/manifest.json (tools/split_assembly.py).",
-    "upper_arm_mm": 150,
-    "forearm_mm": 150,
-    "link_width_mm": 44,
-    "floor_clearance_mm": 8,
+    "floor_clearance_mm": 5,
     "mass_kg": {
-      "_note": "elbow_motor is the published IM6014 mass. Links and payload are guesses; set them from your parts before enabling gravity_ff.",
-      "upper_arm": 0.10,
-      "elbow_motor": 0.535,
-      "forearm": 0.08,
+      "_note": "Used for the gravity readout and the optional gravity feed-forward. The URDF's inertials are placeholders (~0.1 g per part), so these are estimates: elbow_assembly = IM6014 (535 g, published) + its cage; links = two tubes + clamps. Weigh your parts and update before enabling gravity_ff.",
+      "upper_arm": 0.25,
+      "elbow_assembly": 0.75,
+      "forearm": 0.20,
       "payload": 0.0
     }
   },
 
   "joints": [
-    { "name": "J1 yaw",      "id": 0, "direction": 1, "min_deg": -170, "max_deg": 170, "kp": 3, "kd": 1, "max_speed_dps": 60 },
-    { "name": "J2 shoulder", "id": 1, "direction": 1, "min_deg": -100, "max_deg": 100, "kp": 3, "kd": 1, "max_speed_dps": 45 },
-    { "name": "J3 elbow",    "id": 2, "direction": 1, "min_deg": -150, "max_deg": 150, "kp": 3, "kd": 1, "max_speed_dps": 60 }
+    { "name": "J1 yaw",      "urdf": "revolute_2", "id": 0, "direction": 1, "min_deg": -170, "max_deg": 170, "kp": 8,  "kd": 1,   "max_speed_dps": 45 },
+    { "name": "J2 shoulder", "urdf": "revolute_1", "id": 1, "direction": 1, "min_deg": -3.5, "max_deg": 49,  "kp": 15, "kd": 1.5, "max_speed_dps": 30 },
+    { "name": "J3 elbow",    "urdf": "revolute_3", "id": 2, "direction": 1, "min_deg": -325, "max_deg": 10,  "kp": 10, "kd": 1,   "max_speed_dps": 45 }
   ],
+  "_joint_limits_note": "Before calibration: J2 = the CAD contacts (-7.59 screw on screw, +53.11 elbow cage on the table) minus 4 deg; J3 = a 335 deg window around its reference, so the absolute-encoder mapping stays unambiguous. Calibration replaces J2's limits with the measured contacts minus calibration.limit_margin_deg.",
 
   "calibration_pose_deg": [0, 0, 0],
-  "ready_pose_deg": [0, 25, 65],
+  "ready_pose_deg": [0, 10, -30],
+
+  "calibration": {
+    "_note": "Contact-seek settings used by Calibrate. kp/kd are per joint while seeking (Nm/rad, Nm/(rad/s)).",
+    "seek_speed_dps": 10,
+    "contact_speed_ratio": 0.3,
+    "contact_lead_deg": 2,
+    "contact_time_s": 0.2,
+    "backoff_deg": 4,
+    "span_tolerance_deg": 4,
+    "limit_margin_deg": 4,
+    "max_travel_deg": 250,
+    "kp": [6, 15, 8],
+    "kd": [1, 1.5, 1]
+  },
 
   "bus": {
     "_note": "All three IDs on one RS-485 channel by default. A joint may set its own \"port\" to use another FT4232H channel.",
@@ -38,6 +49,6 @@
     "limit_margin_deg": 5,
     "max_tracking_error_deg": 30,
     "gravity_ff": false,
-    "torque_ff_limit_nm": 2.0
+    "torque_ff_limit_nm": 3.0
   }
 }

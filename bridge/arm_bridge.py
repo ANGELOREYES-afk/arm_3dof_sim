@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SERVED = (ROOT / 'web', ROOT / 'config')
 GUID = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 STATE_HZ = 30
-CONTROL_ACTIONS = {'connect', 'disconnect', 'check', 'ack', 'home', 'arm'}
+CONTROL_ACTIONS = {'connect', 'disconnect', 'check', 'ack', 'home', 'arm', 'calibrate', 'cal_confirm'}
 mimetypes.add_type('text/javascript', '.js')
 mimetypes.add_type('application/octet-stream', '.bin')
 
@@ -243,7 +243,9 @@ def main():
         return
     codec, sim = im6014.load(args.im6014)
     cfg = json.loads(Path(args.config).read_text())
-    session = ArmSession(cfg, codec, sim)
+    manifest = json.loads((ROOT / 'web' / 'meshes' / 'manifest.json').read_text())
+    cal_dir = Path(args.config).parent
+    session = ArmSession(cfg, codec, sim, manifest, dict(real=cal_dir / 'calibration.json', demo=cal_dir / 'calibration.demo.json'))
     Handler.hub = Hub(session, list_ports)
     Handler.hosts = {f'{h}:{args.port}' for h in ('127.0.0.1', 'localhost', '[::1]', args.host)}
     server = Server((args.host, args.port), Handler)

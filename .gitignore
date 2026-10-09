@@ -3,3 +3,4 @@ im6014Development/
 __pycache__/
 *.py[cod]
 tests/out/
+config/calibration.demo.json

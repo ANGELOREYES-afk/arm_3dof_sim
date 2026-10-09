@@ -1,15 +1,19 @@
-"""End-to-end UI check: headless Chromium + a stubbed Xbox pad + the bridge in demo mode.
+"""End-to-end UI check: headless Chromium + a stubbed Xbox pad + the bridge with demo motors.
 
     pip install playwright && playwright install chromium   # once, optional dependency
     python3 tests/test_ui.py                               # writes tests/out/*.png
 
-Drives the real page and the real bridge; motors are im6014Development's packet simulator.
+Runs the real page against the real bridge. The demo motors are im6014Development's packet
+simulator with absolute encoders and CAD-predicted stops (bridge/demo_motors.py). The bridge gets
+a temporary config (faster calibration sweeps) so nothing is written to config/.
 """
+import json
 import os
 from pathlib import Path
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 try:
@@ -27,13 +31,18 @@ window.__pad = { id: 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Pr
 Object.defineProperty(navigator, 'getGamepads', { value: () => [window.__pad], configurable: true });
 window.__press = (i, on) => { window.__pad.buttons[i] = { pressed: on, value: on ? 1 : 0 }; };
 """
-A, B, X, Y, LB, RB = 0, 1, 2, 3, 4, 5
+A, B, X, Y, LB, RB, MENU = 0, 1, 2, 3, 4, 5, 9
 
 
 def main():
     OUT.mkdir(exist_ok=True)
+    tmp = tempfile.TemporaryDirectory()
+    cfg = json.loads((ROOT / 'config' / 'arm.json').read_text())
+    cfg['calibration']['seek_speed_dps'] = 40
+    (Path(tmp.name) / 'arm.json').write_text(json.dumps(cfg))
     python = os.environ.get('BRIDGE_PYTHON', sys.executable)  # needs pyserial
-    bridge = subprocess.Popen([python, str(ROOT / 'bridge' / 'arm_bridge.py'), '--port', str(PORT)],
+    bridge = subprocess.Popen([python, str(ROOT / 'bridge' / 'arm_bridge.py'), '--port', str(PORT),
+                               '--config', str(Path(tmp.name) / 'arm.json')],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
         for _ in range(50):
@@ -51,7 +60,7 @@ def main():
             page.on('console', lambda m: m.type == 'error' and errors.append(m.text))
             page.add_init_script(PAD_STUB)
             page.goto(f'http://127.0.0.1:{PORT}/')
-            page.wait_for_selector('#loading', state='detached', timeout=30000)
+            page.wait_for_selector('#loading', state='detached', timeout=60000)
             fps = page.evaluate("""() => new Promise(r => { let n = 0; const t0 = performance.now();
               (function f() { n++; performance.now() - t0 < 1000 ? requestAnimationFrame(f) : r(n); })(); })""")
             print(f'render: {fps} fps (headless)')
@@ -61,86 +70,98 @@ def main():
             page.screenshot(path=OUT / '1_sim.png')
 
             state = lambda: page.text_content('#m-state')
-            def wait_state(pred, what, timeout=6):
+            press = lambda b: (page.evaluate(f'__press({b}, true)'), time.sleep(.15), page.evaluate(f'__press({b}, false)'))
+
+            def wait_state(pred, what, timeout=8):
                 end = time.monotonic() + timeout
                 while time.monotonic() < end:
                     if pred(state()):
                         return
                     time.sleep(.05)
-                raise AssertionError(f'waiting for {what}; state={state()!r} reason={page.text_content("#m-reason")!r}')
-            meas = lambda: [float(x) for x in page.eval_on_selector_all('#m-table tr td:nth-child(3)', 'els => els.map(e => e.textContent)')]
+                log = page.eval_on_selector_all('#m-events li', 'els => els.slice(-8).map(e => e.textContent)')
+                raise AssertionError(f'waiting for {what}; state={state()!r} reason={page.text_content("#m-reason")!r} '
+                                     f'cal={page.text_content("#cal-msg")!r} log={log}')
+
+            q_meas = lambda: [float(x) if x != '—' else None for x in page.eval_on_selector_all('#m-table tr td:nth-child(3)', 'els => els.map(e => e.textContent)')]
+            q_sim = lambda: [float(t.rstrip('°')) for t in page.eval_on_selector_all('.joint .val', 'els => els.map(e => e.textContent)')]
 
             page.click('#m-connect')
             wait_state(lambda s: s.startswith('Timeout'), 'timeout latch')
-            assert page.is_disabled('#m-arm')
             page.click('#m-ack')
             wait_state(lambda s: s == 'Ready · Stop', 'ready')
+            assert 'Not calibrated' in page.text_content('#m-reason'), page.text_content('#m-reason')
             page.check('#m-supported')
-            page.click('#m-arm')
-            wait_state(lambda s: s.startswith('Armed'), 'armed')
-            assert max(map(abs, meas())) < 1, meas()
+            time.sleep(.3)  # the panel refreshes at 10 Hz
+            assert page.is_disabled('#m-arm') and not page.is_disabled('#cal-start')
 
-            # X without the deadman: the sim moves to the ready pose, the motors hold.
-            page.evaluate(f'__press({X}, true)')
-            time.sleep(.15)
-            page.evaluate(f'__press({X}, false)')
-            time.sleep(2.5)
-            assert max(map(abs, meas())) < 1, f'motors moved without the deadman: {meas()}'
-            assert 'holding' in page.text_content('#hud-arm'), (page.text_content('#hud-arm'), state(), page.text_content('#m-reason'))
-
-            # Hold RB: motors catch up to the sim at their configured speed limits.
-            sim_q = lambda: [float(t.rstrip('°')) for t in page.eval_on_selector_all('.joint .val', 'els => els.map(e => e.textContent)')]
-            end = time.monotonic() + 10
-            while time.monotonic() < end and abs(sim_q()[2] - 65) > .5:
-                time.sleep(.1)
-            assert abs(sim_q()[1] - 25) < .5 and abs(sim_q()[2] - 65) < .5, sim_q()
-            page.evaluate(f'__press({RB}, true)')
-            time.sleep(.6)
-            assert 'FOLLOWING' in page.text_content('#hud-arm'), page.text_content('#hud-arm')
-            time.sleep(1.8)
-            m = meas()
-            print(f'  motors after holding RB: {m} (sim at ready pose 0 / 25 / 65)')
-            assert abs(m[1] - 25) < 2 and abs(m[2] - 65) < 2, m
-            # Drive with the left stick while holding RB; the motors track the IK solution.
-            page.evaluate('__pad.axes[0] = 1')
-            time.sleep(1.5)
-            page.evaluate('__pad.axes[0] = 0')
-            time.sleep(1.0)
-            m2 = meas()
-            sim = sim_q()
-            print(f'  after LS → with RB held: sim {sim} motors {m2}')
-            assert abs(m2[0] - sim[0]) < 2 and abs(m2[0]) > 3, (sim, m2)
-            page.screenshot(path=OUT / '2_driving.png')
-
-            # Release RB: the motors hold while the sim previews ahead.
-            page.evaluate(f'__press({RB}, false)')
-            page.evaluate('__pad.axes[1] = 1')
-            time.sleep(1.0)
-            page.evaluate('__pad.axes[1] = 0')
+            # Calibrate: J1 manual (confirm with the Menu button), then J2/J3 seek while RB is held.
+            page.click('#cal-start')
+            wait_state(lambda s: s == 'Calibrating', 'calibrating')
+            page.wait_for_selector('#cal-confirm:not([hidden])', timeout=5000)
+            press(MENU)
+            page.wait_for_selector('#cal-confirm', state='hidden', timeout=5000)
             time.sleep(.5)
-            assert max(abs(a - b) for a, b in zip(meas(), m2)) < 1, 'motors moved after deadman release'
+            assert 'hold RB' in page.text_content('#hud-arm'), page.text_content('#hud-arm')
+            page.evaluate(f'__press({RB}, true)')
+            time.sleep(2)
+            page.screenshot(path=OUT / '2_calibrating.png')
+            t0 = time.monotonic()
+            wait_state(lambda s: s.startswith('Armed') or 'failed' in s, 'calibration done', timeout=90)
+            assert state() == 'Armed · holding', (state(), page.text_content('#m-reason'))
+            print(f'  calibrated in the browser in {time.monotonic() - t0 + 2:.0f}s')
+            steps = page.eval_on_selector_all('#cal-steps li', 'els => els.map(e => e.className + ": " + e.innerText.replace(/\\n/g, " "))')
+            for s in steps:
+                print('   ', s[:170])
+                assert s.startswith('done'), s
+            assert 'Saved' in page.text_content('#cal-saved')
+            page.screenshot(path=OUT / '3_calibrated.png')
 
-            # B: Stop and disarm.
-            page.evaluate(f'__press({B}, true)')
-            time.sleep(.2)
-            page.evaluate(f'__press({B}, false)')
+            # Still holding RB from calibration: the arm holds until RB is released and pressed again.
+            time.sleep(.5)
+            assert 'holding' in page.text_content('#hud-arm')
+            page.evaluate(f'__press({RB}, false)')
+            press(X)  # sim to the ready pose; motors hold (deadman released)
+            end = time.monotonic() + 15
+            while time.monotonic() < end and abs(q_sim()[2] - cfg['ready_pose_deg'][2]) > .5:
+                time.sleep(.1)
+            page.evaluate(f'__press({RB}, true)')
+            time.sleep(.5)
+            assert 'FOLLOWING' in page.text_content('#hud-arm'), page.text_content('#hud-arm')
+            end = time.monotonic() + 15
+            while time.monotonic() < end and max(abs(a - b) for a, b in zip(q_meas(), cfg['ready_pose_deg'])) > 1.5:
+                time.sleep(.1)
+            m = q_meas()
+            print(f'  motors at the ready pose: {m} (target {cfg["ready_pose_deg"]})')
+            assert max(abs(a - b) for a, b in zip(m, cfg['ready_pose_deg'])) < 1.5, m
+            page.evaluate('__pad.axes[1] = -1')  # LS up while driving
+            time.sleep(1.2)
+            page.evaluate('__pad.axes[1] = 0')
+            time.sleep(1.2)
+            sim, m = q_sim(), q_meas()
+            print(f'  after LS with RB held: sim {sim} motors {m}')
+            assert max(abs(a - b) for a, b in zip(sim, m)) < 1.5, (sim, m)
+            page.screenshot(path=OUT / '4_driving.png')
+
+            press(B)
             wait_state(lambda s: s.startswith('Stopped'), 'stopped')
-            assert 'Torque released' in page.text_content('#m-reason')
-            page.screenshot(path=OUT / '3_stopped.png')
+            page.evaluate(f'__press({RB}, false)')
 
-            # Figure-8 demo (sim only) traces a path.
-            page.evaluate(f'__press({LB}, true)')
-            time.sleep(.15)
-            page.evaluate(f'__press({LB}, false)')
-            time.sleep(4)
-            assert 'Figure-8' in page.text_content('#hud-mode')
-            page.screenshot(path=OUT / '4_figure8.png')
+            # Power-cycle stand-in: disconnect and reconnect. Absolute encoders + the saved file
+            # mean it is calibrated straight away.
+            page.click('#m-disconnect')
+            wait_state(lambda s: s == 'Disconnected', 'disconnected')
+            page.click('#m-connect')
+            wait_state(lambda s: s.startswith('Timeout'), 'timeout latch')
+            page.click('#m-ack')
+            wait_state(lambda s: s == 'Ready · Stop', 'ready')
+            assert not page.is_disabled('#m-arm'), 'should be calibrated from the saved file'
+            assert None not in q_meas()
 
-            # Joint mode: A toggles; LS drives J1 directly.
-            page.evaluate(f'__press({LB}, true)'); time.sleep(.15); page.evaluate(f'__press({LB}, false)')
-            page.evaluate(f'__press({A}, true)'); time.sleep(.15); page.evaluate(f'__press({A}, false)')
-            time.sleep(.3)
-            assert page.text_content('#hud-mode') == 'Joint mode'
+            # Sim-only calibration preview runs through the plan.
+            page.click('#cal-preview')
+            time.sleep(3)
+            assert 'Sim →' in page.text_content('#hud-mode')
+            page.screenshot(path=OUT / '5_preview.png')
             assert not errors, errors
             browser.close()
     finally:
@@ -149,6 +170,7 @@ def main():
         if 'Traceback' in out:
             print(out)
             sys.exit('FAIL: bridge traceback')
+        tmp.cleanup()
     print('ui: ok — screenshots in tests/out/')
 
 

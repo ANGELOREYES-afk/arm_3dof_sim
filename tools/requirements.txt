@@ -1,0 +1,4 @@
+# tools only (the sim and bridge do not need these)
+numpy
+scipy
+fast-simplification
