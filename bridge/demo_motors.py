@@ -1,5 +1,5 @@
-"""Demo actuators: im6014Development's packet-level DemoSerial plus an absolute output encoder
-and physical stops, so the calibration can run end to end without hardware.
+"""Demo actuators: the IM6014 repo's packet-level DemoSerial plus an absolute output encoder and
+physical stops, on one shared bus, so calibration and control run end to end without hardware.
 
 Each simulated joint powers up at the calibration start pose, reporting its output angle offset by a
 fixed, arbitrary mounting angle (what calibration has to find), and cannot pass the contacts the
@@ -8,19 +8,57 @@ only while those joints are at the calibration plan's park angles. No gravity.
 """
 import math
 import struct
+import time
 
 # Arbitrary but fixed so a saved demo calibration stays valid across bridge restarts.
 MOUNTING_DEG = (137.4, -61.9, 98.2)
 
 
-def demo_buses(sim, codec, joints, plan):
-    """One simulated bus per joint (each with its own time step), with stops from the plan.
-    A step's contacts only exist while the joints it parks are at their park angles."""
+class SharedDemoBus:
+    """One half-duplex RS-485 bus with several simulated motors: a request goes to the motor at
+    its ID, and that motor's reply is what the following reads return. No motor, no reply."""
+
+    is_open = True
+
+    def __init__(self, motors):
+        self.motors = motors  # {motor_id: DemoSerial}
+        self.data = b''
+        self.timeout = 0.005
+        self.write_timeout = 0.05
+
+    @property
+    def in_waiting(self):
+        return len(self.data)
+
+    def reset_input_buffer(self):
+        self.data = b''
+
+    def write(self, packet):
+        motor = self.motors.get(packet[2] & 15)
+        if motor is None:
+            return len(packet)
+        n = motor.write(packet)
+        self.data += motor.data
+        motor.data = b''
+        return n
+
+    def read(self, size):
+        data, self.data = self.data[:size], self.data[size:]
+        if not data:
+            time.sleep(0.001)
+        return data
+
+    def close(self):
+        self.is_open = False
+
+
+def demo_bus(sim, codec, joints, plan):
+    """All joints on one simulated bus (each motor keeps its own time step)."""
     start = plan['start_pose_deg']
-    buses = []
+    motors = {}
 
     def true_deg(i):
-        pos = buses[i].states[joints[i]['id']]['pos']
+        pos = motors[joints[i]['id']].states[joints[i]['id']]['pos']
         return (math.degrees(pos) - MOUNTING_DEG[i]) * joints[i]['direction']
 
     for i, j in enumerate(joints):
@@ -32,8 +70,14 @@ def demo_buses(sim, codec, joints, plan):
             lim = (math.radians(min(a, b)), math.radians(max(a, b)))
             park = {int(k): v for k, v in step.get('park_deg', {}).items()}
             active = lambda park=park: all(abs(true_deg(k) - v) < 3 for k, v in park.items())
-        buses.append(_make(sim, codec, j['id'], math.radians(enc0), lim, active))
-    return buses
+        motors[j['id']] = _make(sim, codec, j['id'], math.radians(enc0), lim, active)
+    return SharedDemoBus(motors)
+
+
+def true_angle_deg(bus, joints, i):
+    """The simulated joint's true URDF angle (for tests)."""
+    pos = bus.motors[joints[i]['id']].states[joints[i]['id']]['pos']
+    return (math.degrees(pos) - MOUNTING_DEG[i]) * joints[i]['direction']
 
 
 def _make(sim, codec, motor_id, pos0, limits, active):
@@ -52,6 +96,6 @@ def _make(sim, codec, motor_id, pos0, limits, active):
                     self.data = b'\xfc\xee' + body + struct.pack('<I', codec.crc32(body))
             return n
 
-    bus = StopDemoSerial()
-    bus.states = {motor_id: dict(mode=0, timeout=1, rpm=0., pos=pos0, torque=0.)}
-    return bus
+    motor = StopDemoSerial()
+    motor.states = {motor_id: dict(mode=0, timeout=1, rpm=0., pos=pos0, torque=0.)}
+    return motor

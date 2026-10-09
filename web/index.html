@@ -113,6 +113,8 @@
   #cal-steps li.failed .st, .res.err { color: var(--red); }
   .res { margin-top: 3px; font: 11px var(--mono); color: var(--ink); }
   .cal-msg { margin-top: 8px; color: var(--amber); }
+  .lib { margin-top: 8px; font: 11px var(--mono); color: var(--ink-dim); }
+  .lib a { color: var(--cyan); }
   [hidden] { display: none !important; }
 
   @media (max-width: 900px) {
@@ -212,7 +214,7 @@
         <button id="m-connect">Connect</button>
         <button id="m-disconnect">Disconnect</button>
         <button id="m-check">Check</button>
-        <button id="m-ack">Ack timeout</button>
+        <button id="m-ack" title="Clear a startup timeout or a latched fault (after fixing its cause)">Acknowledge</button>
       </div>
       <label class="check"><input type="checkbox" id="m-supported"> The arm is supported and clear of people. Stop releases torque, so a loaded joint will drop.</label>
       <div class="cal">
@@ -222,6 +224,7 @@
         <div class="btns">
           <button id="cal-preview" title="Animate the plan in the sim on the CAD-predicted contacts">Preview in sim</button>
           <button id="cal-start" class="primary" title="Pose the arm like “Calibration start pose” first">Calibrate</button>
+          <button id="cal-verify" class="primary" hidden title="Once per power-up: touch one J2 stop and confirm the pose">Verify</button>
           <button id="cal-confirm" class="primary" hidden>Confirm aligned (☰)</button>
         </div>
       </div>
@@ -231,13 +234,14 @@
       </div>
       <button class="stop" id="m-stop">STOP · B / Esc</button>
       <div class="kv">
-        <div>loop<b id="k-hz">—</b></div><div>tx / rx<b id="k-pk">—</b></div><div>CRC<b id="k-crc">—</b></div><div>timeouts<b id="k-to">—</b></div>
+        <div>loop<b id="k-hz">—</b></div><div>tx / rx<b id="k-pk">—</b></div><div>CRC / rejected<b id="k-crc">—</b></div><div>timeouts<b id="k-to">—</b></div>
       </div>
       <table>
-        <thead><tr><th>Joint</th><th>ID</th><th>q °</th><th>enc °</th><th>Nm</th><th>V</th><th>°C</th><th>age</th></tr></thead>
+        <thead><tr><th>Joint</th><th>ID</th><th>q °</th><th>enc °</th><th>Nm</th><th>V</th><th>°C</th><th>rtt</th></tr></thead>
         <tbody id="m-table"></tbody>
       </table>
       <ol class="log" id="m-events"></ol>
+      <p class="note lib"><span id="m-lib"></span> · <a href="/api/diagnostics" download>Export diagnostics</a></p>
     </div>
   </section>
 </aside>

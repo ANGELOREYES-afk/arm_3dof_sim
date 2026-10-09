@@ -314,9 +314,11 @@ function menuButton() {
   if (!motors?.connected) return flash('Connect the motors in the panel first');
   if (motors.calibration?.awaiting_confirm) return bridge.cmd('cal_confirm');
   if (!$('m-supported').checked) return flash('Tick “The arm is supported” in the panel first');
-  if (st.startsWith('Stopped') || st.startsWith('Fault') || st.startsWith('Calibration failed')) return bridge.cmd('check');
+  if (st.startsWith('Stopped')) return bridge.cmd('check');
+  if (/^(Fault|Timeout|Calibration failed|Verification failed)/.test(st)) return flash('Fix the cause, then press Acknowledge in the panel');
   if (st === 'Ready · Stop') {
     if (!motors.zeroed) return flash('Not calibrated: run Calibrate in the panel');
+    if (!motors.verified) return bridge.cmd('verify', { supported: true });
     return bridge.cmd('arm', { supported: true });
   }
 }
@@ -366,7 +368,16 @@ function describeStep(s) {
   return `${name}${park}: seek ${c('lo')} and ${c('hi')}; reference ${s.reference_deg}°.`;
 }
 function renderPlan() {
-  const steps = motors?.calibration?.steps?.length ? motors.calibration.steps : PLAN.steps.map((s) => ({ ...s, status: 'pending' }));
+  const cal = motors?.calibration;
+  if (cal?.mode === 'verify' && cal.steps?.length) {  // the power-up check, described by the bridge
+    $('cal-steps').innerHTML = cal.steps.map((st, i) => {
+      const res = st.error_deg != null ? `<div class="res">touched ${st.contact_deg}° · CAD ${st.predicted_deg}° · error ${st.error_deg >= 0 ? '+' : ''}${st.error_deg}°</div>`
+        : st.error ? `<div class="res err">${st.error}</div>` : '';
+      return `<li class="${st.status}"><b>${i + 1}. ${st.method === 'verify_contact' ? 'verify a stop' : 'confirm the pose'}</b> <span class="st">${st.status}</span><div>${st.text}</div>${res}</li>`;
+    }).join('');
+    return;
+  }
+  const steps = cal?.steps?.length ? cal.steps : PLAN.steps.map((s) => ({ ...s, status: 'pending' }));
   $('cal-steps').innerHTML = steps.map((st, i) => {
     const s = PLAN.steps[i];
     const result = st.status === 'done' && st.measured_span_deg != null
@@ -389,6 +400,7 @@ $('btn-cal').onclick = () => moveTo(PLAN.start_pose_deg.map(rad), 'calibration s
 $('cal-preview').onclick = previewCalibration;
 $('cal-start').onclick = () => bridge.cmd('calibrate', { supported: $('m-supported').checked });
 $('cal-confirm').onclick = () => bridge.cmd('cal_confirm');
+$('cal-verify').onclick = () => bridge.cmd('verify', { supported: $('m-supported').checked });
 $('m-source').onchange = () => { $('real-opts').hidden = $('m-source').value !== 'real'; };
 $('m-connect').onclick = () => {
   const real = $('m-source').value === 'real';
@@ -456,7 +468,8 @@ function updatePanel() {
   const cal = motors?.calibration;
   renderPlan();
   $('cal-saved').textContent = !online || !motors.connected ? 'Connect to see the saved calibration.'
-    : cal?.saved ? `Saved ${cal.saved.created} in config/${cal.saved.file}` : 'Not calibrated yet.';
+    : cal?.saved ? `Saved ${cal.saved.created} in config/${cal.saved.file}${motors.verified ? ' · verified this power-up' : ' · not verified since connecting'}`
+      : 'Not calibrated yet.';
   $('cal-msg').textContent = cal?.message || '';
   $('cal-msg').hidden = !cal?.message;
   $('cal-confirm').hidden = !cal?.awaiting_confirm;
@@ -466,26 +479,29 @@ function updatePanel() {
     $('observer-note').hidden = !motors.observer;
     $('m-state').textContent = st;
     $('m-reason').textContent = motors.reason;
-    $('m-state-box').className = 'state' + (motors.armed || cal?.active ? ' armed' : /^(Fault|Calibration failed)/.test(st) ? ' fault' : st.startsWith('Ready') ? ' ready' : '');
+    $('m-state-box').className = 'state' + (motors.armed || cal?.active ? ' armed' : /^(Fault|Calibration failed|Verification failed)/.test(st) ? ' fault' : st.startsWith('Ready') ? ' ready' : '');
     const supported = $('m-supported').checked;
     const ctl = !motors.observer;
     $('m-source').disabled = $('m-port').disabled = $('m-baud').disabled = motors.connected;
     $('m-connect').disabled = !ctl || motors.connected;
     $('m-disconnect').disabled = !ctl || !motors.connected;
     $('m-check').disabled = !ctl || !motors.connected || motors.armed || cal?.active;
-    $('m-ack').disabled = !ctl || !st.startsWith('Timeout');
+    $('m-ack').disabled = !ctl || !/^(Timeout|Fault|Calibration failed|Verification failed)/.test(st);
     $('m-home').disabled = !ctl || st !== 'Ready · Stop' || !supported;
-    $('m-arm').disabled = !ctl || st !== 'Ready · Stop' || !motors.zeroed || !supported;
+    $('m-arm').disabled = !ctl || st !== 'Ready · Stop' || !motors.zeroed || !motors.verified || !supported;
     $('cal-start').disabled = !ctl || st !== 'Ready · Stop' || !supported;
-    $('k-hz').textContent = motors.connected ? `${motors.loop_hz.toFixed(0)} Hz` : '—';
+    $('cal-verify').hidden = !(motors.zeroed && !motors.verified && !cal?.active);
+    $('cal-verify').disabled = !ctl || st !== 'Ready · Stop' || !supported;
+    $('k-hz').textContent = motors.connected ? `${motors.loop_hz.toFixed(0)} Hz · ${motors.cycle_ms} ms` : '—';
     $('k-pk').textContent = `${motors.tx}/${motors.rx}`;
-    $('k-crc').textContent = motors.crc_errors;
+    $('k-crc').textContent = `${motors.crc_errors} / ${motors.rejected_frames}`;
     $('k-to').textContent = motors.reply_timeouts;
+    $('m-lib').textContent = `Transport: ${motors.library}`;
     $('m-table').innerHTML = cfg.joints.map((j, i) => {
       const f = fb?.[i];
       const cell = (v, d = 1) => (v == null ? '—' : (+v).toFixed(d));
       return `<tr><td>${j.name.split(' ')[0]}</td><td>${j.id}</td><td>${cell(f?.q_deg)}</td><td>${cell(f?.position_deg)}</td><td>${cell(f?.torque_nm, 2)}</td>
-        <td>${cell(f?.voltage, 1)}</td><td>${f ? `${f.driver_c}/${f.winding_c}` : '—'}</td><td>${f ? f.age_ms + 'ms' : '—'}</td></tr>`;
+        <td>${cell(f?.voltage, 1)}</td><td>${f ? `${f.driver_c}/${f.winding_c}` : '—'}</td><td>${f?.rtt_ms != null ? f.rtt_ms + 'ms' : '—'}</td></tr>`;
     }).join('');
   } else {
     $('cal-start').disabled = true;
@@ -498,12 +514,13 @@ function updatePanel() {
   if (online && motors.connected) {
     const driving = motors.armed && motors.moving;
     armPill.className = 'pill ' + (motors.armed || cal?.active ? (driving || (cal?.active && controls.deadman()) ? 'live' : 'warn') : '');
+    const word = cal?.mode === 'verify' ? 'VERIFYING' : 'CALIBRATING';
     armPill.textContent = cal?.active
-      ? (cal.awaiting_confirm ? 'CALIBRATING — align, then ☰ / Confirm' : controls.deadman() ? '● CALIBRATING' : 'CALIBRATING — hold RB / Space to run')
+      ? (cal.awaiting_confirm ? `${word} — check, then ☰ / Confirm` : controls.deadman() ? `● ${word}` : `${word} — hold RB / Space to run`)
       : motors.armed
-        ? (driving ? '● MOTORS FOLLOWING SIM' : 'ARMED · holding — release, then hold RB to drive')
+        ? (motors.effort_limited ? `EFFORT LIMIT — ${motors.effort_limited}; back off` : driving ? '● MOTORS FOLLOWING SIM' : 'ARMED · holding — release, then hold RB to drive')
         : `Motors: ${motors.state}`;
-    if (/^(Fault|Calibration failed)/.test(motors.state)) armPill.className = 'pill danger';
+    if (/^(Fault|Calibration failed|Verification failed)/.test(motors.state) || motors.effort_limited) armPill.className = 'pill danger';
   }
   $('hud-blocked').hidden = !sim.blocked;
   $('hud-blocked').textContent = sim.blocked ? `Blocked: ${sim.blocked}` : '';

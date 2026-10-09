@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / 'bridge'))
 import im6014  # noqa: E402
 from arm_session import ArmSession  # noqa: E402
 
-codec, sim = im6014.load()
+LIB = im6014.load()
 CFG = json.loads((ROOT / 'config' / 'arm.json').read_text())
 MANIFEST = json.loads((ROOT / 'web' / 'meshes' / 'manifest.json').read_text())
 TMP = tempfile.TemporaryDirectory()
@@ -29,7 +29,7 @@ def session(cfg=CFG):
     d = Path(TMP.name)
     for f in d.glob('*.json'):
         f.unlink()
-    return ArmSession(cfg, codec, sim, MANIFEST, dict(real=d / 'real.json', demo=d / 'demo.json'))
+    return ArmSession(cfg, LIB, MANIFEST, dict(real=d / 'real.json', demo=d / 'demo.json'))
 
 
 def wait(session, pred, timeout=3.):
@@ -111,10 +111,12 @@ def test_lifecycle():
         assert not d['armed'] and 'heartbeat' in d['reason'], d
         assert all(f['mode'] == 0 for f in d['feedback']), d['feedback']
 
-        # Recover: check, re-arm at the measured pose, operator Stop.
+        # Recover: a fault needs an explicit acknowledgment, then re-arm at the measured pose.
         hb.clear()
         threading.Thread(target=heartbeat, args=(s, hb), daemon=True).start()
         s.request('check')
+        wait(s, lambda d: 'Acknowledge the fault' in d['reason'])
+        s.request('ack')
         wait(s, lambda d: d['state'] == 'Ready · Stop')
         s.request('arm', supported=True)
         d = wait(s, lambda d: d['armed'])

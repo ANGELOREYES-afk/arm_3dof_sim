@@ -154,14 +154,29 @@ def main():
             wait_state(lambda s: s.startswith('Timeout'), 'timeout latch')
             page.click('#m-ack')
             wait_state(lambda s: s == 'Ready · Stop', 'ready')
-            assert not page.is_disabled('#m-arm'), 'should be calibrated from the saved file'
-            assert None not in q_meas()
+            assert None not in q_meas(), 'should be calibrated from the saved file'
+            time.sleep(.3)
+            # ...but a loaded calibration is verified once per connection before arming.
+            assert page.is_disabled('#m-arm') and page.is_visible('#cal-verify')
+            page.click('#cal-verify')
+            wait_state(lambda s: s == 'Verifying', 'verifying')
+            page.evaluate(f'__press({RB}, true)')
+            page.wait_for_selector('#cal-confirm:not([hidden])', timeout=30000)
+            page.evaluate(f'__press({RB}, false)')
+            page.screenshot(path=OUT / '5_verify.png')
+            press(MENU)  # the ghost lies on the (simulated) arm: confirm
+            wait_state(lambda s: s.startswith('Armed'), 'armed after verify')
+            assert 'verified this power-up' in page.text_content('#cal-saved')
+            print('  verify after reconnect: ' + ' | '.join(page.eval_on_selector_all('#cal-steps li', 'els => els.map(e => e.innerText.replace(/\\n/g, " ").slice(0, 90))')))
+            assert page.text_content('#m-lib').startswith('Transport: im6014'), page.text_content('#m-lib')
 
             # Sim-only calibration preview runs through the plan.
+            press(B)
+            wait_state(lambda s: s.startswith('Stopped'), 'stopped')
             page.click('#cal-preview')
             time.sleep(3)
             assert 'Sim →' in page.text_content('#hud-mode')
-            page.screenshot(path=OUT / '5_preview.png')
+            page.screenshot(path=OUT / '6_preview.png')
             assert not errors, errors
             browser.close()
     finally:

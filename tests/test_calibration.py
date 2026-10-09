@@ -18,7 +18,7 @@ from arm_session import ArmSession  # noqa: E402
 from calibration import ContactSeek, SeekSettings, joint_angle, solve_two_contacts, wrap  # noqa: E402
 import demo_motors  # noqa: E402
 
-codec, sim = im6014.load()
+LIB = im6014.load()
 CFG = json.loads((ROOT / 'config' / 'arm.json').read_text())
 MANIFEST = json.loads((ROOT / 'web' / 'meshes' / 'manifest.json').read_text())
 
@@ -69,12 +69,11 @@ def wait(session, pred, timeout, what):
 
 def truth_deg(session, i):
     """The simulated joint's true URDF angle, from the demo's hidden mounting angle."""
-    pos = math.degrees(session.buses[i].states[CFG['joints'][i]['id']]['pos'])
-    return (pos - demo_motors.MOUNTING_DEG[i]) * CFG['joints'][i]['direction']
+    return demo_motors.true_angle_deg(session.buses[0], CFG['joints'], i)
 
 
 def run_session(cfg, cal_dir, manifest=MANIFEST):
-    s = ArmSession(cfg, codec, sim, manifest, dict(real=cal_dir / 'real.json', demo=cal_dir / 'demo.json'))
+    s = ArmSession(cfg, LIB, manifest, dict(real=cal_dir / 'real.json', demo=cal_dir / 'demo.json'))
     stop, deadman = threading.Event(), threading.Event()
     threading.Thread(target=heartbeat, args=(s, stop, deadman), daemon=True).start()
     return s, stop, deadman
@@ -144,8 +143,18 @@ def test_demo_calibration():
             assert d['zeroed'] and d['calibration']['saved'], d['calibration']
             for i in range(3):
                 assert abs(wrap(d['feedback'][i]['q_deg'] - truth_deg(s, i))) < 0.6
+            # Power-up semantics are unmeasured on hardware: a loaded calibration is verified first.
             s.request('arm', supported=True)
-            wait(s, lambda d: d['armed'], 3, 'armed from saved calibration')
+            wait(s, lambda d: 'Verify' in d['reason'], 2, 'arm refused until verified')
+            deadman.set()
+            s.request('verify', supported=True)
+            d = wait(s, lambda d: d['calibration']['awaiting_confirm'], 30, 'verify contact, then pose confirm')
+            touched = d['calibration']['steps'][0]
+            assert touched['status'] == 'done' and abs(touched['error_deg']) < 0.6, touched
+            print(f"  verify: J2 touched {touched['contact_deg']}° vs CAD {touched['predicted_deg']}°")
+            s.request('cal_confirm')
+            d = wait(s, lambda d: d['state'].startswith('Armed'), 5, 'armed after verify')
+            assert d['verified']
         finally:
             stop.set()
             s.close()
@@ -162,7 +171,7 @@ def test_span_mismatch_fails_safe():
         # The demo motors keep the real stops; the "CAD" now claims a 20 deg wider range.
         j2['predicted'] = json.loads(json.dumps(real))
         j2['predicted']['hi']['deg'] += 20
-        s = ArmSession(cfg, codec, sim, manifest, dict(real=Path(tmp) / 'r.json', demo=Path(tmp) / 'd.json'))
+        s = ArmSession(cfg, LIB, manifest, dict(real=Path(tmp) / 'r.json', demo=Path(tmp) / 'd.json'))
         stop, deadman = threading.Event(), threading.Event()
         deadman.set()
         threading.Thread(target=heartbeat, args=(s, stop, deadman), daemon=True).start()

@@ -13,9 +13,9 @@
   },
 
   "joints": [
-    { "name": "J1 yaw",      "urdf": "revolute_2", "id": 0, "direction": 1, "min_deg": -90,  "max_deg": 90,  "kp": 8,  "kd": 1,   "max_speed_dps": 45 },
-    { "name": "J2 shoulder", "urdf": "revolute_1", "id": 1, "direction": 1, "min_deg": -84.9, "max_deg": 47.5, "kp": 15, "kd": 1.5, "max_speed_dps": 30 },
-    { "name": "J3 elbow",    "urdf": "revolute_3", "id": 2, "direction": 1, "min_deg": 60,    "max_deg": 390,  "kp": 10, "kd": 1,   "max_speed_dps": 45 }
+    { "name": "J1 yaw",      "urdf": "revolute_2", "id": 0, "direction": 1, "min_deg": -90,  "max_deg": 90,  "kp": 8,  "kd": 1,   "max_speed_dps": 45, "max_accel_dps2": 120 },
+    { "name": "J2 shoulder", "urdf": "revolute_1", "id": 1, "direction": 1, "min_deg": -84.9, "max_deg": 47.5, "kp": 15, "kd": 1.5, "max_speed_dps": 30, "max_accel_dps2": 90 },
+    { "name": "J3 elbow",    "urdf": "revolute_3", "id": 2, "direction": 1, "min_deg": 60,    "max_deg": 390,  "kp": 10, "kd": 1,   "max_speed_dps": 45, "max_accel_dps2": 120 }
   ],
   "_joint_limits_note": "J1: 180 deg total (+-90 about the URDF zero) for wire management; no mechanical stop, so this is a soft limit that relies on the J1 calibration. J2 before calibration: the CAD contacts (-88.94 tube clamp on a turret nut, +51.54 elbow cage on the table) minus 4 deg; calibration replaces them with the measured contacts minus calibration.limit_margin_deg. J3: 60..390 (390 = 30 past the CAD pose at 360): its absolute-encoder reading is mapped within +-180 of the middle of these limits, so the 30 deg it cannot reach sits at 'forearm folded back along the upper arm', a pose the arm never needs.",
 
@@ -32,6 +32,7 @@
     "span_tolerance_deg": 4,
     "limit_margin_deg": 4,
     "max_travel_deg": 250,
+    "verify_tolerance_deg": 3,
     "kp": [6, 15, 8],
     "kd": [1, 1.5, 1]
   },
@@ -39,7 +40,10 @@
   "bus": {
     "_note": "All three IDs on one RS-485 channel by default. A joint may set its own \"port\" to use another FT4232H channel.",
     "port": "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTC2RQ7H-if03-port0",
-    "baud": 6000000
+    "baud": 6000000,
+    "_lease_note": "Linux + im6014-workbench: the port is opened through its per-device lease. Set expected_serial and expected_channel (e.g. \"FTC2RQ7H\" and 3) to also reject the wrong adapter; null skips that check.",
+    "expected_serial": null,
+    "expected_channel": null
   },
 
   "safety": {
@@ -49,6 +53,9 @@
     "limit_margin_deg": 5,
     "max_tracking_error_deg": 30,
     "gravity_ff": false,
-    "torque_ff_limit_nm": 3.0
+    "torque_ff_limit_nm": 3.0,
+    "effort_limit_nm": 3.5,
+    "verify_after_connect": true,
+    "_note": "effort_limit_nm: the bridge will not step further into a commanded torque (feed-forward + Kp/Kd terms) above this; im6014's healthy() trips at a measured 4 Nm. verify_after_connect: a calibration loaded from file must be verified once per connection before arming, because power-up position semantics are unmeasured."
   }
 }

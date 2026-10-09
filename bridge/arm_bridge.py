@@ -3,8 +3,9 @@
     python3 bridge/arm_bridge.py                  # then open http://127.0.0.1:8765
     python3 bridge/arm_bridge.py --list-ports
 
-Standard library + pyserial only. Motors stay disconnected until the page asks to connect,
-and Demo uses that repo's packet-level simulator without touching any serial device.
+Standard library + pyserial only (plus the IM6014 repo, see im6014.py). Motors stay
+disconnected until the page asks to connect, and Demo uses that repo's packet-level simulator
+without touching any serial device.
 
 Only one browser tab controls the arm; others watch. Any tab can Stop. The page's targets act
 only while armed and while the deadman is held. Losing the controlling tab stops the motors.
@@ -29,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SERVED = (ROOT / 'web', ROOT / 'config')
 GUID = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 STATE_HZ = 30
-CONTROL_ACTIONS = {'connect', 'disconnect', 'check', 'ack', 'home', 'arm', 'calibrate', 'cal_confirm'}
+CONTROL_ACTIONS = {'connect', 'disconnect', 'check', 'ack', 'home', 'arm', 'calibrate', 'verify', 'cal_confirm'}
 mimetypes.add_type('text/javascript', '.js')
 mimetypes.add_type('application/octet-stream', '.bin')
 
@@ -145,6 +146,15 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == '/ws':
             return self._websocket()
+        if path == '/api/diagnostics':  # state, events and recent packets, for bug reports
+            body = json.dumps(self.hub.session.diagnostics(), indent=1, default=str).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Disposition', 'attachment; filename="arm-diagnostics.json"')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            return self.wfile.write(body)
         if path in ('/', '/web'):
             self.send_response(302)
             self.send_header('Location', '/web/')
@@ -241,15 +251,15 @@ def main():
         for p in list_ports():
             print(f"{p['device']:60s} {p['description']} {p['serial']}")
         return
-    codec, sim = im6014.load(args.im6014)
+    lib = im6014.load(args.im6014)
     cfg = json.loads(Path(args.config).read_text())
     manifest = json.loads((ROOT / 'web' / 'meshes' / 'manifest.json').read_text())
     cal_dir = Path(args.config).parent
-    session = ArmSession(cfg, codec, sim, manifest, dict(real=cal_dir / 'calibration.json', demo=cal_dir / 'calibration.demo.json'))
+    session = ArmSession(cfg, lib, manifest, dict(real=cal_dir / 'calibration.json', demo=cal_dir / 'calibration.demo.json'))
     Handler.hub = Hub(session, list_ports)
     Handler.hosts = {f'{h}:{args.port}' for h in ('127.0.0.1', 'localhost', '[::1]', args.host)}
     server = Server((args.host, args.port), Handler)
-    print(f'IM6014 codec: {Path(codec.__file__).parent}')
+    print(f'IM6014 code:  {lib.name} at {lib.path}')
     print(f'Simulator:    http://127.0.0.1:{args.port}/   (motors stay disconnected until you connect in the page)')
     try:
         server.serve_forever()

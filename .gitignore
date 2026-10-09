@@ -4,3 +4,5 @@ __pycache__/
 *.py[cod]
 tests/out/
 config/calibration.demo.json
+im6014-workbench/
+.worktrees/
