@@ -62,25 +62,26 @@ def test_lifecycle():
         wait(s, lambda d: d['state'] == 'Ready · Stop')
         s.request('arm', supported=True)
         wait(s, lambda d: 'Calibrate before arming' in d['reason'])
-        # Manual reference: the arm is declared to be at the calibration pose [0, 0, 0].
+        # Manual reference: the arm is declared to be at the calibration pose (the CAD pose).
         s.request('home', supported=True)
         wait(s, lambda d: d['zeroed'] and d['state'] == 'Ready · Stop')
         s.request('arm', supported=False)
         wait(s, lambda d: 'acknowledgment' in d['reason'])
         s.request('arm', supported=True)
         d = wait(s, lambda d: d['armed'])
-        assert max(map(abs, d['q_cmd'])) < 1e-6, d['q_cmd']
+        pose = CFG['calibration_pose_deg']
+        assert max(abs(a - b) for a, b in zip(d['q_cmd'], pose)) < 1e-6, d['q_cmd']
 
         # Without the deadman, targets are ignored: the arm holds.
         for _ in range(20):
             s.set_target([0.5, 0.5, 0.5], deadman=False)
             time.sleep(.01)
         d = s.snapshot()
-        assert d['state'] == 'Armed · holding' and max(map(abs, d['q_cmd'])) < 1e-6, d['q_cmd']
+        assert d['state'] == 'Armed · holding' and max(abs(a - b) for a, b in zip(d['q_cmd'], pose)) < 1e-6, d['q_cmd']
 
         # With the deadman, q_cmd ramps at max_speed and the simulated motors follow.
         # (The demo joints have physical stops; these targets stay clear of them.)
-        goal = [30., 20., 300.]  # J3 past its 10 deg limit -> clamped
+        goal = [30., 20., 400.]  # J3 past its 390 deg limit -> clamped
         t0 = time.monotonic()
         while time.monotonic() - t0 < 4.:
             s.set_target([math.radians(a) for a in goal], deadman=True)
@@ -92,7 +93,7 @@ def test_lifecycle():
         d = s.snapshot()
         assert d['state'] == 'Armed · moving', d['state']
         assert abs(d['q_cmd'][0] - 30) < .5 and abs(d['q_cmd'][1] - 20) < .5, d['q_cmd']
-        assert abs(d['q_cmd'][2] - 10) < .5, d['q_cmd']  # clamped to the limit
+        assert abs(d['q_cmd'][2] - 390) < .5, d['q_cmd']  # clamped to the limit
         meas = [f['q_deg'] for f in d['feedback']]
         assert all(abs(m - c) < 5 for m, c in zip(meas, d['q_cmd'])), (meas, d['q_cmd'])
         assert d['tx'] == d['rx'] and d['crc_errors'] == 0 and d['reply_timeouts'] == 0, d
@@ -100,7 +101,7 @@ def test_lifecycle():
 
         # Deadman released: hold where we are.
         for _ in range(30):
-            s.set_target([0., 0., 0.], deadman=False)
+            s.set_target([0., 0., 6.], deadman=False)
             time.sleep(.01)
         assert abs(s.snapshot()['q_cmd'][0] - 30) < .5
 

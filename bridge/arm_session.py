@@ -119,6 +119,11 @@ class ArmSession:
         with self.lock:
             self.data['calibration'].update(values)
 
+    def _centre_deg(self, i):
+        """Middle of joint i's configured limits: the absolute-encoder mapping is unambiguous
+        within +-180 deg of it."""
+        return math.degrees(sum(self.cfg_lim[i])) / 2
+
     def _limits_deg(self):
         return [[round(math.degrees(a), 2), round(math.degrees(b), 2)] for a, b in self.lim]
 
@@ -267,7 +272,7 @@ class ArmSession:
         self.zero = [None] * self.n
         for i, r in enumerate(self.refs):
             if r and fb[i]:
-                q = math.radians(joint_angle(r, fb[i]['position_deg']))
+                q = math.radians(joint_angle(r, fb[i]['position_deg'], self._centre_deg(i)))
                 self.zero[i] = math.radians(fb[i]['position_deg']) - r['direction'] * q
                 with self.lock:
                     fb[i]['q_deg'] = math.degrees(q)
@@ -527,7 +532,7 @@ class ArmSession:
                 cal['park_goal'] = {}
                 for key, q_deg in step.get('park_deg', {}).items():
                     i, r = int(key), cal['refs'][int(key)]
-                    cal['park_goal'][i] = enc[i] + r['direction'] * (q_deg - joint_angle(r, enc[i]))
+                    cal['park_goal'][i] = enc[i] + r['direction'] * (q_deg - joint_angle(r, enc[i], self._centre_deg(i)))
             done = True
             for i, goal in cal['park_goal'].items():
                 done = (ramp(i, goal) if held else False) and done

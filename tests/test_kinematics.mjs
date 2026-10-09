@@ -90,7 +90,7 @@ assert.equal(arm.why([2000, 0, 200], [0, 0, 0]), 'out of reach');
 
 // 6. Joint mode respects limits.
 {
-  let q = [0, rad(20), rad(-60)];
+  let q = cfg.ready_pose_deg.map(rad);
   for (let k = 0; k < 400; k++) q = arm.jointStep(q, [0.05, 0, 0]).q;
   close(deg(q[0]), cfg.joints[0].max_deg, 1e-9, 'J1 stops at its limit');
 }

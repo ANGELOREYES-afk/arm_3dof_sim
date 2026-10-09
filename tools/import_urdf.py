@@ -15,10 +15,13 @@ the URDF zero pose) and web/meshes/manifest.json with:
 World frame: CAD -Z is up, so world = diag(1, -1, -1) @ (CAD - origin); origin on the J1 axis at the
 lowest point of the base (the table plane, z = 0). Joint angles everywhere are the URDF angles.
 
-Export quirks handled for this assembly (override with flags):
+Export quirks handled for this assembly:
   --weld revolute_4      Onshape left a free revolute between the J3 hub and the forearm clamp; a
                          3-actuator arm cannot drive it, so it is held at its CAD angle.
-  --drop none_2,root     a duplicate J1 motor body, and a loose 1/4-20 nut mated to the origin.
+  duplicate motor        the J1 motor is exported twice in the same place; the copy on the moving
+                         side is dropped automatically (matched by position, not link name).
+Onshape renumbers links and Part_1_N mesh files on every export, so parts are recognised by shape
+and the tool point by geometry; use --drop / --tool-links only to override.
 """
 import argparse
 import base64
@@ -42,17 +45,36 @@ OUT = Path(__file__).resolve().parent.parent / 'web' / 'meshes'
 R_UP = np.diag([1., -1., -1.])  # CAD -Z up -> world +Z up
 CONTACT_MM = 0.6                # surfaces closer than this count as touching
 SAMPLE_MM = 0.8                 # surface sampling pitch for contact sweeps
-MATERIAL = {                    # by mesh file; anything else is 'hardware'
-    'NONE.gltf': 'motor',
-    'Part_1.gltf': 'link', 'Part_1_1.gltf': 'link', 'Part_1_12.gltf': 'link',
-    'Part_1_2.gltf': 'tube',
-    'Part_1_6.gltf': 'frame', 'Part_1_9.gltf': 'frame', 'Part_1_10.gltf': 'frame', 'Part_1_11.gltf': 'frame',
-    'Part_1_3.gltf': 'hub', 'Part_1_4.gltf': 'hub', 'Part_1_5.gltf': 'hub',
-}
-NAMES = {'NONE.gltf': 'IM6014', 'Part_1_2.gltf': 'link tube', 'Part_1_11.gltf': 'turret L-bracket',
-         'Part_1_6.gltf': 'motor plate', 'Part_1_10.gltf': 'motor bracket', 'Part_1_9.gltf': 'motor end cap',
-         'Part_1.gltf': 'tube clamp', 'Part_1_1.gltf': 'tube clamp', 'Part_1_12.gltf': 'elbow plate',
-         'Part_1_8.gltf': 'standoff', 'Part_1_7.gltf': 'standoff', 'Part_1_4.gltf': 'output flange'}
+
+
+def classify(file, P, I):
+    """(material, description) from the part's shape. Onshape renumbers Part_1_N files between
+    exports, so names cannot be trusted; sizes (mm, sorted extents) and triangle counts can."""
+    a, b, c = sorted(np.ptp(P, 0) * 1000)
+    low = file.lower()
+    if abs(c - 65) < 1.5 and abs(b - 65) < 1.5 and abs(a - 62.3) < 2:  # IM6014: 65 mm dia x 62.3
+        return 'motor', 'IM6014'
+    if 'screw' in low:
+        return 'hardware', 'screw'
+    if 'nut' in low:
+        return 'hardware', 'nut'
+    if c > 150 and b < 25:
+        return 'tube', 'link tube'
+    if a < 11 and abs(b - 54.6) < 2 and abs(c - 54.6) < 2:
+        return 'hub', 'output flange'
+    if c < 40:
+        return 'hardware', 'standoff'
+    if abs(c - 71) < 2 and abs(b - 71) < 2:
+        return 'link', 'tube clamp'
+    if c > 120:
+        return 'frame', 'turret L-bracket'
+    if abs(c - 90) < 2 and a < 16:
+        return 'link', 'elbow plate'
+    if abs(c - 93.7) < 1 and a < 11:
+        return 'frame', 'motor plate'
+    if abs(c - 93.7) < 1:
+        return 'frame', 'motor bracket'
+    return 'frame', file.replace('.gltf', '')
 
 
 # ---------------------------------------------------------------- URDF + glTF
@@ -234,8 +256,10 @@ def main():
     ap.add_argument('--joints', default='revolute_2,revolute_1,revolute_3', help='J1,J2,J3 URDF joint names')
     ap.add_argument('--names', default='J1 yaw,J2 shoulder,J3 elbow')
     ap.add_argument('--weld', default='revolute_4')
-    ap.add_argument('--drop', default='none_2,root', help='links whose visuals are not part of the arm')
-    ap.add_argument('--tool-links', default='part_1_5,part_1_6', help='tool point = centre of these links')
+    ap.add_argument('--drop', default='', help='links whose visuals are not part of the arm '
+                    '(a duplicate motor body stacked on another is dropped automatically)')
+    ap.add_argument('--tool-links', default='', help='tool point = centre of these links '
+                    '(default: the forearm tube clamps farthest from the J3 axis)')
     ap.add_argument('--table-offset-mm', type=float, default=0., help='table plane above the lowest base point')
     args = ap.parse_args()
     t_start = time.time()
@@ -267,7 +291,7 @@ def main():
 
     # ---- triangles per link, CAD mm
     rng = np.random.default_rng(0)
-    link_tris, link_mat, link_file = {}, {}, {}
+    link_tris, link_mat, link_desc = {}, {}, {}
     for n in robot.links:
         if n in drop:
             continue
@@ -275,10 +299,21 @@ def main():
             for P, I in robot.mesh(f):
                 M = F[n] @ V
                 link_tris.setdefault(n, []).append(((P @ M[:3, :3].T + M[:3, 3]) * 1000)[I])
-                link_mat[n] = MATERIAL.get(f, 'hardware')
-                link_file[n] = f
+                link_mat[n], link_desc[n] = classify(f, P, I)
     link_tris = {n: np.concatenate(t) for n, t in link_tris.items()}
     link_body = {n: body_key[robot.body(n, actuated)] for n in link_tris}
+    # Onshape sometimes exports a motor twice (stator and rotor sides) in the same place. Keep the
+    # copy on the proximal side of the joint; link names change between exports, so match by position.
+    motors = [n for n in link_tris if link_mat[n] == 'motor']
+    rank = {b: i for i, b in enumerate(body_key.values())}
+    mid = {n: (link_tris[n].reshape(-1, 3).min(0) + link_tris[n].reshape(-1, 3).max(0)) / 2 for n in motors}
+    for i, a in enumerate(motors):
+        for b in motors[i + 1:]:
+            if a in link_tris and b in link_tris and np.linalg.norm(mid[a] - mid[b]) < 3:
+                extra = max((a, b), key=lambda n: rank[link_body[n]])
+                print(f'Dropping duplicate motor body {extra} (stacked on {a if extra == b else b})', flush=True)
+                drop.add(extra)
+                del link_tris[extra], link_body[extra]
 
     # ---- world frame
     j_cad = []
@@ -302,8 +337,20 @@ def main():
         raise SystemExit('J1 must be the vertical axis through the base origin')
 
     world_tris = {n: world(t.reshape(-1, 3)).reshape(-1, 3, 3) for n, t in link_tris.items()}
-    tool_links = args.tool_links.split(',')
-    tool = np.mean([(world_tris[n].reshape(-1, 3).min(0) + world_tris[n].reshape(-1, 3).max(0)) / 2 for n in tool_links], 0)
+    def centre(n):
+        P = world_tris[n].reshape(-1, 3)
+        return (P.min(0) + P.max(0)) / 2
+
+    if args.tool_links:
+        tool_links = args.tool_links.split(',')
+    else:  # link names are renumbered between exports, so find the forearm's end clamps by geometry
+        o3, a3w = np.array(joints[2]['origin']), np.array(joints[2]['axis'])
+        clamps = [n for n in world_tris if link_body[n] == 'j3' and link_desc[n] == 'tube clamp']
+        reach = {n: np.linalg.norm(np.cross(centre(n) - o3, a3w)) for n in clamps}
+        far = max(reach.values())
+        tool_links = sorted(n for n, r in reach.items() if r > far - 5)
+    tool = np.mean([centre(n) for n in tool_links], 0)
+    print(f'Tool point: centre of {tool_links}', flush=True)
 
     # ---- closed-form IK parameters (see web/js/kinematics.js) and a check against the chain
     z = np.array([0, 0, 1.])
@@ -422,7 +469,7 @@ def main():
         return None, []
 
     def label(n):
-        return 'table' if n == 'table' else f"{NAMES.get(link_file.get(n), link_file.get(n, n).replace('.gltf', ''))} ({n})"
+        return 'table' if n == 'table' else f'{link_desc[n]} ({n})'
 
     def stops(k, q0, intrinsic=False):
         out = {}
@@ -442,12 +489,10 @@ def main():
     # ---- calibration plan
     plan = []
     j2_mech = hard[names[1]]
-    if not (j2_mech['lo'] and j2_mech['hi']):
-        raise SystemExit('Expected J2 to have mechanical stops on both sides')
     # J2 first. The forearm is uncalibrated, so pick a hand-placed J3 start pose from which the J2
-    # sweep is stopped by J2's own body on both sides (mechanical stop or the table), at the same
-    # angles for any J3 within +-25 deg of it.
-    q2_mid = np.radians((j2_mech['lo']['deg'] + j2_mech['hi']['deg']) / 2)
+    # sweep is stopped by J2's own body on both sides (mechanical stop, turret, base or table), at
+    # the same angles for any J3 within +-25 deg of it.
+    q2_mid = np.radians((j2_mech['lo']['deg'] + j2_mech['hi']['deg']) / 2) if j2_mech['lo'] and j2_mech['hi'] else 0.
     j2_key = body_key[actuated[1]]
 
     def own(s):
@@ -523,6 +568,7 @@ def main():
                     welded=welded, dropped=sorted(drop)),
         units='mm', up='+z', frame='world = diag(1,-1,-1) @ (CAD - origin); origin on J1 at the table',
         origin_cad_mm=np.round(origin, 3).tolist(), bodies=parts, joints=joints, tool=np.round(tool, 3).tolist(),
+        tool_links=tool_links,
         analytic=analytic, hard_stops=hard, calibration=calibration,
         collision=dict(spheres=sph, skip_pairs=skip, table_z_mm=table_z))
     (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=1) + '\n')

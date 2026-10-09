@@ -121,8 +121,11 @@ def test_demo_calibration():
                 assert st['status'] == 'done'
             for i in range(3):
                 q = d['feedback'][i]['q_deg']
-                assert abs(q - truth_deg(s, i)) < 0.6, (i, q, truth_deg(s, i))
-            assert d['limits_deg'][1][0] > -7.59 and d['limits_deg'][1][1] < 53.11, d['limits_deg']
+                assert abs(wrap(q - truth_deg(s, i))) < 0.6, (i, q, truth_deg(s, i))
+                lo, hi = d['limits_deg'][i]
+                assert lo - 1e-6 <= q <= hi + 1e-6, (i, q, lo, hi)  # mapped into the joint's window
+            j2 = next(st for st in MANIFEST['calibration']['steps'] if st['joint'] == 1)['predicted']
+            assert j2['lo']['deg'] < d['limits_deg'][1][0] < d['limits_deg'][1][1] < j2['hi']['deg'], d['limits_deg']
             saved = json.loads((cal_dir / 'demo.json').read_text())
             assert [j['method'] for j in saved['joints']] == ['manual', 'hard_stops', 'contacts']
             s.request('stop')
@@ -140,7 +143,7 @@ def test_demo_calibration():
             d = wait(s, lambda d: d['state'] == 'Ready · Stop', 3, 'ready')
             assert d['zeroed'] and d['calibration']['saved'], d['calibration']
             for i in range(3):
-                assert abs(d['feedback'][i]['q_deg'] - truth_deg(s, i)) < 0.6
+                assert abs(wrap(d['feedback'][i]['q_deg'] - truth_deg(s, i))) < 0.6
             s.request('arm', supported=True)
             wait(s, lambda d: d['armed'], 3, 'armed from saved calibration')
         finally:

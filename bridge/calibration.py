@@ -2,10 +2,12 @@
 
 Each joint maps its output-encoder angle to the URDF joint angle with
 
-    q = q_ref + dir * wrap(enc - enc_ref)          wrap to (-180, 180] degrees
+    q = centre + wrap(q_ref + dir * (enc - enc_ref) - centre)       wrap to (-180, 180] degrees
 
-which is unambiguous for any joint whose travel is under 360 deg, whether the actuator reports a
-single-turn or multi-turn absolute angle at power-up. Calibration finds enc_ref for a known q_ref:
+where centre is the middle of the joint's limits. That is unambiguous for any joint whose travel
+is under 360 deg, whether the actuator reports a single-turn or multi-turn absolute angle at
+power-up; the one excluded 360 - travel slice sits opposite the middle of the limits, so pick
+limits that put it where the joint never goes. Calibration finds enc_ref for a known q_ref:
 
   hard_stops / contacts   seek a contact in each direction; the CAD predicts the joint angle at
                           each contact, so enc_ref = midpoint of the two measured encoder angles
@@ -23,9 +25,13 @@ def wrap(a):
     return a - 360. * math.ceil((a - 180.) / 360.)
 
 
-def joint_angle(ref, enc_deg):
-    """URDF joint angle (deg) from an absolute output-encoder angle (deg)."""
-    return ref['q_ref_deg'] + ref['direction'] * wrap(enc_deg - ref['enc_ref_deg'])
+def joint_angle(ref, enc_deg, centre_deg=None):
+    """URDF joint angle (deg) from an absolute output-encoder angle (deg), within +-180 deg of
+    centre_deg (default: the reference angle)."""
+    q = ref['q_ref_deg'] + ref['direction'] * wrap(enc_deg - ref['enc_ref_deg'])
+    if centre_deg is None:
+        return q
+    return centre_deg + wrap(q - centre_deg)
 
 
 @dataclass

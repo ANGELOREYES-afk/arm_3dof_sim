@@ -13,14 +13,14 @@
   },
 
   "joints": [
-    { "name": "J1 yaw",      "urdf": "revolute_2", "id": 0, "direction": 1, "min_deg": -170, "max_deg": 170, "kp": 8,  "kd": 1,   "max_speed_dps": 45 },
-    { "name": "J2 shoulder", "urdf": "revolute_1", "id": 1, "direction": 1, "min_deg": -3.5, "max_deg": 49,  "kp": 15, "kd": 1.5, "max_speed_dps": 30 },
-    { "name": "J3 elbow",    "urdf": "revolute_3", "id": 2, "direction": 1, "min_deg": -325, "max_deg": 10,  "kp": 10, "kd": 1,   "max_speed_dps": 45 }
+    { "name": "J1 yaw",      "urdf": "revolute_2", "id": 0, "direction": 1, "min_deg": -90,  "max_deg": 90,  "kp": 8,  "kd": 1,   "max_speed_dps": 45 },
+    { "name": "J2 shoulder", "urdf": "revolute_1", "id": 1, "direction": 1, "min_deg": -84.9, "max_deg": 47.5, "kp": 15, "kd": 1.5, "max_speed_dps": 30 },
+    { "name": "J3 elbow",    "urdf": "revolute_3", "id": 2, "direction": 1, "min_deg": 60,    "max_deg": 390,  "kp": 10, "kd": 1,   "max_speed_dps": 45 }
   ],
-  "_joint_limits_note": "Before calibration: J2 = the CAD contacts (-7.59 screw on screw, +53.11 elbow cage on the table) minus 4 deg; J3 = a 335 deg window around its reference, so the absolute-encoder mapping stays unambiguous. Calibration replaces J2's limits with the measured contacts minus calibration.limit_margin_deg.",
+  "_joint_limits_note": "J1: 180 deg total (+-90 about the URDF zero) for wire management; no mechanical stop, so this is a soft limit that relies on the J1 calibration. J2 before calibration: the CAD contacts (-88.94 tube clamp on a turret nut, +51.54 elbow cage on the table) minus 4 deg; calibration replaces them with the measured contacts minus calibration.limit_margin_deg. J3: 60..390 (390 = 30 past the CAD pose at 360): its absolute-encoder reading is mapped within +-180 of the middle of these limits, so the 30 deg it cannot reach sits at 'forearm folded back along the upper arm', a pose the arm never needs.",
 
-  "calibration_pose_deg": [0, 0, 0],
-  "ready_pose_deg": [0, 10, -30],
+  "calibration_pose_deg": [0, 0, 360],
+  "ready_pose_deg": [0, -20, 302],
 
   "calibration": {
     "_note": "Contact-seek settings used by Calibrate. kp/kd are per joint while seeking (Nm/rad, Nm/(rad/s)).",
